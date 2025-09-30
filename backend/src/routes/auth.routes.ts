@@ -8,6 +8,7 @@ import {
   forgotPassword,
   resetPassword,
   refreshToken,
+  me,
 } from "../controllers/auth.controller";
 
 const router = Router();
@@ -18,4 +19,5 @@ router.post("/logout", asyncHandler(logout));
 router.post("/forgot-password", asyncHandler(forgotPassword));
 router.post("/reset-password", asyncHandler(resetPassword));
 router.post("/refresh", asyncHandler(refreshToken));
+router.get("/me", asyncHandler(me));
 export default router;

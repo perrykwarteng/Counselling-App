@@ -61,3 +61,68 @@ export async function sendWelcomeEmail(to: string, name: string) {
     html
   );
 }
+
+export async function sendCounselorOnboarding(
+  to: string,
+  name: string,
+  tempPassword: string,
+  otp: string,
+  uid: string,
+  expiresInMinutes = 30
+) {
+  const verifyUrl = `${env.APP_URL}/auth/optVerify?uid=${encodeURIComponent(
+    uid
+  )}`;
+
+  const subject = "Counselor Account Setup — Temp Password & OTP";
+  const html = buildEmailTemplate(
+    "Counselor Account Setup",
+    `
+      <p>Hi ${name},</p>
+      <p>Your counselor account has been created. Below are your temporary credentials and verification steps.</p>
+
+      <ul>
+        <li><b>Email:</b> ${to}</li>
+        <li><b>Temporary Password:</b> ${tempPassword}</li>
+      </ul>
+
+      <p>Your one-time code (OTP) is:</p>
+      <div class="highlight">${otp}</div>
+      <p>This code will expire in ${expiresInMinutes} minutes.</p>
+
+      <p>Click the button below to open the verification page, then enter your OTP:</p>
+      <p>
+        <a href="${verifyUrl}" class="button">Verify your account</a>
+      </p>
+
+      <p>If the button doesn’t work, copy and paste this link:</p>
+      <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+
+      <p>After verification, log in with the temporary password and change it.</p>
+    `
+  );
+
+  const text = [
+    `Hi ${name},`,
+    ``,
+    `Your counselor account has been created.`,
+    ``,
+    `Email: ${to}`,
+    `Temporary Password: ${tempPassword}`,
+    `OTP: ${otp} (expires in ${expiresInMinutes} minutes)`,
+    ``,
+    `Verify your account: ${verifyUrl}`,
+    ``,
+    `After verification, log in with the temporary password and change it.`,
+  ].join("\n");
+
+  await sendEmail(to, subject, text, html);
+
+  if (env.NODE_ENV === "development") {
+    console.log(`[DEV] Counselor onboarding for ${to}:
+  Temp Password: ${tempPassword}
+  OTP: ${otp}
+  Verify: ${verifyUrl}`);
+    return;
+  }
+}
