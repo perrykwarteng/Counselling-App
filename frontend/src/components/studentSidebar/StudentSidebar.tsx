@@ -16,11 +16,11 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard/student", icon: BarChart3 },
-  {
-    name: "Find Counselor",
-    href: "/dashboard/student/find-counselor",
-    icon: Brain,
-  },
+  // {
+  //   name: "Find Counselor",
+  //   href: "/dashboard/student/find-counselor",
+  //   icon: Brain,
+  // },
   {
     name: "Appointments",
     href: "/dashboard/student/appointments",
@@ -31,9 +31,7 @@ const navigation = [
     href: "/dashboard/student/messages",
     icon: MessageCircle,
   },
-  { name: "Mood Tracker", href: "/dashboard/student/mood", icon: Heart },
   { name: "Resources", href: "/dashboard/student/resources", icon: BookOpen },
-  { name: "Sessions", href: "/dashboard/student/sessions", icon: VideoIcon },
   { name: "Profile", href: "/dashboard/student/profile", icon: User },
 ];
 

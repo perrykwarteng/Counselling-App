@@ -5,13 +5,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   BarChart3,
-  Users,
   UserCheck,
-  Shield,
   BookOpen,
-  AlertTriangle,
   FileText,
-  Settings,
   User,
   UserPlus,
 } from "lucide-react";
@@ -21,7 +17,6 @@ const navigation = [
   { name: "Counselors", href: "/dashboard/admin/counselors", icon: UserCheck },
   { name: "Students", href: "/dashboard/admin/students", icon: User },
   { name: "Resources", href: "/dashboard/admin/resources", icon: BookOpen },
-  { name: "Analytics", href: "/dashboard/admin/analytics", icon: BarChart3 },
   { name: "Referrals", href: "/dashboard/admin/referrals", icon: UserPlus },
   { name: "System Logs", href: "/dashboard/admin/logs", icon: FileText },
 ];

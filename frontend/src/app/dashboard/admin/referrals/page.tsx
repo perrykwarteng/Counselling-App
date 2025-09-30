@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-// import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
@@ -13,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -34,261 +33,285 @@ import {
 import {
   UserPlus,
   CheckCircle,
-  XCircle,
-  Clock,
   User,
   FileText,
   AlertCircle,
+  RotateCw,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/adminSidebar/AdminSidebar";
-// import { mockReferrals, mockCounselors, mockStudents } from '@/lib/mock-data';
-// import { Referral } from '@/types';
+import { toast } from "sonner";
+
+// ✅ use the new hook that returns the referrals object directly
+import { useAdminReferrals } from "@/Context/AdminReferralsProvider";
+
+type Role = "student" | "counselor" | "admin";
+type CounselorType = "academic" | "professional" | null;
+
+type IUser = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: Role;
+  counselor_type?: CounselorType;
+  specialities?: string[];
+  is_verified: boolean;
+  is_anonymous: boolean;
+  is_active: boolean;
+  profile?: { department?: string; level?: string };
+  created_at: string;
+};
+
+type ReferredStudentRow = {
+  referred_by: string;
+  reason?: string | null;
+  created_at: string;
+  student: IUser | null;
+  counselor: IUser | null;
+};
+
+type CounselorLoadRow = {
+  total_assigned: number;
+  counselor: IUser | null;
+};
 
 export default function AdminReferralsPage() {
-  // const { user, loading } = useAuth();
   const router = useRouter();
-  // const [referrals, setReferrals] = useState<Referral[]>(mockReferrals);
+
+  // ⬇️ match the provider API: items = filtered latest-per-student rows
+  const {
+    items: assignedRows,
+    counselors: counselorLoads,
+    unassigned,
+    loading,
+    error,
+    refetch,
+    refer,
+  } = useAdminReferrals();
+
+  // Dialog + form state
   const [showCreateReferral, setShowCreateReferral] = useState(false);
-  // const [selectedReferral, setSelectedReferral] = useState<Referral | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toCounselorId, setToCounselorId] = useState("");
+  const [studentId, setStudentId] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
 
-  const [newReferral, setNewReferral] = useState({
-    fromCounselorId: "",
-    toCounselorId: "",
-    studentId: "",
-    reason: "",
-    notes: "",
-  });
+  const initials = (n?: string) =>
+    (n || "")
+      .split(" ")
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join("")
+      .slice(0, 3)
+      .toUpperCase();
 
-  // useEffect(() => {
-  //   if (!loading && (!user || user.role !== 'admin')) {
-  //     router.push('/');
-  //   }
-  // }, [user, loading, router]);
+  // Student options = union of assigned + unassigned
+  const allStudentsForSelect = useMemo(() => {
+    const fromAssigned = (assignedRows || [])
+      .map((r) => r.student)
+      .filter(Boolean) as IUser[];
+    const byId = new Map<string, IUser>();
+    [...fromAssigned, ...(unassigned || [])].forEach((s) => {
+      if (!byId.has(s._id)) byId.set(s._id, s);
+    });
+    return Array.from(byId.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [assignedRows, unassigned]);
 
-  // if (loading || !user) {
-  //   return <div>Loading...</div>;
-  // }
+  // Counselors from loads + assigned
+  const counselorOptions = useMemo(() => {
+    const fromLoads = (counselorLoads || [])
+      .map((c) => c.counselor)
+      .filter(Boolean) as IUser[];
+    const fromAssigned = (assignedRows || [])
+      .map((r) => r.counselor)
+      .filter(Boolean) as IUser[];
+    const byId = new Map<string, IUser>();
+    [...fromLoads, ...fromAssigned].forEach((u) => {
+      if (u.role === "counselor" && !byId.has(u._id)) byId.set(u._id, u);
+    });
+    return Array.from(byId.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [counselorLoads, assignedRows]);
 
-  // const handleCreateReferral = () => {
-  //   const referral: Referral = {
-  //     id: Math.random().toString(36).substr(2, 9),
-  //     fromCounselorId: newReferral.fromCounselorId,
-  //     toCounselorId: newReferral.toCounselorId,
-  //     studentId: newReferral.studentId,
-  //     reason: newReferral.reason,
-  //     status: 'pending',
-  //     createdAt: new Date(),
-  //     notes: newReferral.notes
-  //   };
-
-  //   setReferrals(prev => [referral, ...prev]);
-  //   setNewReferral({
-  //     fromCounselorId: '',
-  //     toCounselorId: '',
-  //     studentId: '',
-  //     reason: '',
-  //     notes: ''
-  //   });
-  //   setShowCreateReferral(false);
-  // };
-
-  // const handleUpdateReferralStatus = (referralId: string, status: 'accepted' | 'declined') => {
-  //   setReferrals(prev => prev.map(ref =>
-  //     ref.id === referralId ? { ...ref, status } : ref
-  //   ));
-  // };
-
-  // const getCounselorName = (counselorId: string) => {
-  //   const counselor = mockCounselors.find(c => c.id === counselorId);
-  //   return counselor ? `${counselor.firstName} ${counselor.lastName}` : 'Unknown Counselor';
-  // };
-
-  // const getStudentName = (studentId: string) => {
-  //   const student = mockStudents.find(s => s.id === studentId);
-  //   return student ? `${student.firstName} ${student.lastName}` : 'Unknown Student';
-  // };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Clock className="h-4 w-4 text-yellow-500" />;
-      case "accepted":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "declined":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      default:
-        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+  async function handleRefresh() {
+    const t = toast.loading("Refreshing...");
+    try {
+      await refetch();
+      toast.success("List refreshed", { id: t });
+    } catch {
+      toast.error("Failed to refresh", { id: t });
     }
-  };
+  }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "secondary";
-      case "accepted":
-        return "default";
-      case "declined":
-        return "destructive";
-      default:
-        return "secondary";
+  async function handleCreateReferral() {
+    setBusy(true);
+    const t = toast.loading("Creating referral...");
+    try {
+      const composedReason =
+        notes.trim().length > 0
+          ? `${reason.trim()}\n\nNotes:\n${notes.trim()}`
+          : reason.trim();
+      const ok = await refer(studentId, toCounselorId, composedReason);
+      if (!ok) throw new Error("Refer API returned false");
+      toast.success("Referral created", { id: t });
+      setToCounselorId("");
+      setStudentId("");
+      setReason("");
+      setNotes("");
+      setShowCreateReferral(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to create referral", { id: t });
+    } finally {
+      setBusy(false);
     }
-  };
+  }
 
-  // const pendingReferrals = referrals.filter(ref => ref.status === 'pending');
-  // const completedReferrals = referrals.filter(ref => ref.status !== 'pending');
+  const totalAssigned = assignedRows?.length ?? 0;
+  const totalUnassigned = unassigned?.length ?? 0;
+  const totalCounselors = counselorLoads?.length ?? 0;
 
   return (
-    <DashboardLayout title="Student Referrals" sidebar={<AdminSidebar />}>
+    <DashboardLayout title="Admin Dashboard" sidebar={<AdminSidebar />}>
       <div className="space-y-6">
-        {/* Header with Create Button */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold">Student Referrals</h2>
             <p className="text-muted-foreground">
-              Manage counselor-to-counselor student referrals
+              Manage counselor assignments and create new referrals
             </p>
           </div>
-          <Dialog
-            open={showCreateReferral}
-            onOpenChange={setShowCreateReferral}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <UserPlus className="h-4 w-4 mr-2" />
-                Create Referral
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Create New Referral</DialogTitle>
-                <DialogDescription>
-                  Refer a student from one counselor to another for specialized
-                  care
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-6 mt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>From Counselor</Label>
-                    <Select
-                      value={newReferral.fromCounselorId}
-                      onValueChange={(value) =>
-                        setNewReferral((prev) => ({
-                          ...prev,
-                          fromCounselorId: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select referring counselor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {/* {mockCounselors.map((counselor) => (
-                          <SelectItem key={counselor.id} value={counselor.id}>
-                            {counselor.firstName} {counselor.lastName} ({counselor.type})
-                          </SelectItem>
-                        ))} */}
-                      </SelectContent>
-                    </Select>
-                  </div>
 
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRefresh}
+              disabled={loading || busy}
+            >
+              <RotateCw
+                className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+
+            <Dialog
+              open={showCreateReferral}
+              onOpenChange={setShowCreateReferral}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Create Referral
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Create New Referral</DialogTitle>
+                  <DialogDescription>
+                    Refer a student to a counselor for specialized care.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-6 mt-6">
                   <div>
                     <Label>To Counselor</Label>
                     <Select
-                      value={newReferral.toCounselorId}
-                      onValueChange={(value) =>
-                        setNewReferral((prev) => ({
-                          ...prev,
-                          toCounselorId: value,
-                        }))
-                      }
+                      value={toCounselorId}
+                      onValueChange={setToCounselorId}
                     >
                       <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select receiving counselor" />
+                        <SelectValue placeholder="Select counselor" />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* {mockCounselors.map((counselor) => (
-                          <SelectItem key={counselor.id} value={counselor.id}>
-                            {counselor.firstName} {counselor.lastName} ({counselor.type})
-                          </SelectItem>
-                        ))} */}
+                        {counselorOptions.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No counselors found
+                          </div>
+                        ) : (
+                          counselorOptions.map((c) => (
+                            <SelectItem key={c._id} value={c._id}>
+                              {c.name}
+                              {c.counselor_type ? ` (${c.counselor_type})` : ""}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
 
-                <div>
-                  <Label>Student</Label>
-                  <Select
-                    value={newReferral.studentId}
-                    onValueChange={(value) =>
-                      setNewReferral((prev) => ({ ...prev, studentId: value }))
-                    }
-                  >
-                    <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select student" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* {mockStudents.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.firstName} {student.lastName}
-                        </SelectItem>
-                      ))} */}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <div>
+                    <Label>Student</Label>
+                    <Select value={studentId} onValueChange={setStudentId}>
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select student" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allStudentsForSelect.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No students available
+                          </div>
+                        ) : (
+                          allStudentsForSelect.map((s) => (
+                            <SelectItem key={s._id} value={s._id}>
+                              {s.name}
+                              {s.profile?.department
+                                ? ` — ${s.profile.department}`
+                                : ""}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div>
-                  <Label>Reason for Referral</Label>
-                  <Textarea
-                    placeholder="Explain why this student needs to be referred to another counselor..."
-                    value={newReferral.reason}
-                    onChange={(e) =>
-                      setNewReferral((prev) => ({
-                        ...prev,
-                        reason: e.target.value,
-                      }))
-                    }
-                    className="mt-2"
-                  />
-                </div>
+                  <div>
+                    <Label>Reason for Referral</Label>
+                    <Textarea
+                      placeholder="Explain why this student is being referred..."
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="mt-2"
+                    />
+                  </div>
 
-                <div>
-                  <Label>Additional Notes</Label>
-                  <Textarea
-                    placeholder="Any additional information for the receiving counselor..."
-                    value={newReferral.notes}
-                    onChange={(e) =>
-                      setNewReferral((prev) => ({
-                        ...prev,
-                        notes: e.target.value,
-                      }))
-                    }
-                    className="mt-2"
-                  />
-                </div>
+                  <div>
+                    <Label>Additional Notes (optional)</Label>
+                    <Textarea
+                      placeholder="Any extra context for the receiving counselor…"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="mt-2"
+                    />
+                  </div>
 
-                <div className="flex gap-4 justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowCreateReferral(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    disabled={
-                      !newReferral.fromCounselorId ||
-                      !newReferral.toCounselorId ||
-                      !newReferral.studentId ||
-                      !newReferral.reason
-                    }
-                  >
-                    Create Referral
-                  </Button>
+                  <div className="flex gap-4 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowCreateReferral(false)}
+                      disabled={busy}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleCreateReferral}
+                      disabled={
+                        busy ||
+                        !toCounselorId ||
+                        !studentId ||
+                        reason.trim().length === 0
+                      }
+                    >
+                      {busy ? "Creating..." : "Create Referral"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Stats */}
@@ -296,29 +319,14 @@ export default function AdminReferralsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Pending Referrals
+                Assigned Students
               </CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {/* {pendingReferrals.length} */}
-              </div>
-              <p className="text-xs text-muted-foreground">Awaiting response</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Accepted</CardTitle>
               <CheckCircle className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {/* {referrals.filter((ref) => ref.status === "accepted").length} */}
-              </div>
+              <div className="text-2xl font-bold">{totalAssigned}</div>
               <p className="text-xs text-muted-foreground">
-                Successfully transferred
+                Latest assignment per student
               </p>
             </CardContent>
           </Card>
@@ -326,136 +334,55 @@ export default function AdminReferralsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Total Referrals
+                Unassigned Students
               </CardTitle>
-              <UserPlus className="h-4 w-4 text-blue-600" />
+              <User className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              {/* <div className="text-2xl font-bold">{referrals.length}</div> */}
-              <p className="text-xs text-muted-foreground">All time</p>
+              <div className="text-2xl font-bold">{totalUnassigned}</div>
+              <p className="text-xs text-muted-foreground">No referrals yet</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Active Counselors
+              </CardTitle>
+              <UserPlus className="h-4 w-4 text-indigo-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalCounselors}</div>
+              <p className="text-xs text-muted-foreground">
+                Receiving current assignments
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Pending Referrals */}
-        {/* {pendingReferrals.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-yellow-600" />
-                Pending Referrals ({pendingReferrals.length})
-              </CardTitle>
-              <CardDescription>
-                Referrals awaiting counselor response
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {pendingReferrals.map((referral) => (
-                <div key={referral.id} className="border rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(referral.status)}
-                        <Badge variant={getStatusColor(referral.status) as any}>
-                          {referral.status}
-                        </Badge>
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        Created {referral.createdAt.toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          handleUpdateReferralStatus(referral.id, "accepted")
-                        }
-                      >
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        Accept
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          handleUpdateReferralStatus(referral.id, "declined")
-                        }
-                      >
-                        <XCircle className="h-4 w-4 mr-1" />
-                        Decline
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">
-                        FROM COUNSELOR
-                      </Label>
-                      <p className="font-medium">
-                        {getCounselorName(referral.fromCounselorId)}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">
-                        TO COUNSELOR
-                      </Label>
-                      <p className="font-medium">
-                        {getCounselorName(referral.toCounselorId)}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">
-                        STUDENT
-                      </Label>
-                      <p className="font-medium">
-                        {getStudentName(referral.studentId)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">
-                        REASON
-                      </Label>
-                      <p className="text-sm">{referral.reason}</p>
-                    </div>
-                    {referral.notes && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">
-                          NOTES
-                        </Label>
-                        <p className="text-sm">{referral.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )} */}
-
-        {/* All Referrals */}
+        {/* Current Assignments */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              All Referrals
+              All Referrals (Current Assignment per Student)
             </CardTitle>
             <CardDescription>
-              Complete history of student referrals
+              Shows the most recent counselor assignment for each student.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* {referrals.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <AlertCircle className="h-16 w-16 mx-auto mb-4 opacity-20" />
+                Loading…
+              </div>
+            ) : (assignedRows?.length ?? 0) === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <UserPlus className="h-16 w-16 mx-auto mb-4 opacity-20" />
                 <h3 className="text-lg font-medium mb-2">No referrals yet</h3>
                 <p className="text-sm mb-4">
-                  Student referrals will appear here when counselors request
-                  transfers
+                  Create your first referral to see it here.
                 </p>
                 <Button onClick={() => setShowCreateReferral(true)}>
                   Create First Referral
@@ -463,173 +390,79 @@ export default function AdminReferralsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {referrals.map((referral) => (
-                  <div key={referral.id} className="border rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(referral.status)}
-                          <Badge
-                            variant={getStatusColor(referral.status) as any}
-                          >
-                            {referral.status}
-                          </Badge>
+                {assignedRows!.map((row, idx) => {
+                  const s = row.student;
+                  const c = row.counselor;
+                  return (
+                    <div
+                      key={`${s?._id}-${idx}`}
+                      className="border rounded-lg p-4"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="secondary">Current</Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {new Date(row.created_at).toLocaleString()}
+                          </span>
                         </div>
-                        <span className="text-sm text-muted-foreground">
-                          {referral.createdAt.toLocaleDateString()}
-                        </span>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setSelectedReferral(referral)}
-                      >
-                        <FileText className="h-4 w-4 mr-1" />
-                        Details
-                      </Button>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarFallback>{initials(s?.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {s?.name ?? "Unknown student"}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {s?.email ?? "—"}
+                            </div>
+                            {s?.profile?.department && (
+                              <div className="text-xs text-muted-foreground">
+                                {s.profile.department}
+                                {s.profile.level ? ` • ${s.profile.level}` : ""}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarFallback>{initials(c?.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {c?.name ?? "Unknown counselor"}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {c?.email ?? "—"}
+                            </div>
+                            {c?.counselor_type && (
+                              <div className="text-xs text-muted-foreground">
+                                {c.counselor_type}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs text-muted-foreground">
+                            REASON
+                          </Label>
+                          <p className="text-sm mt-1 whitespace-pre-wrap">
+                            {row.reason || "—"}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">
-                          FROM → TO
-                        </Label>
-                        <p className="font-medium text-sm">
-                          {getCounselorName(referral.fromCounselorId)} →{" "}
-                          {getCounselorName(referral.toCounselorId)}
-                        </p>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">
-                          STUDENT
-                        </Label>
-                        <p className="font-medium text-sm">
-                          {getStudentName(referral.studentId)}
-                        </p>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">
-                          REASON
-                        </Label>
-                        <p className="text-sm truncate">{referral.reason}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )} */}
-          </CardContent>
-        </Card>
-
-        {/* Referral Details Modal */}
-        {/* <Dialog
-          open={!!selectedReferral}
-          onOpenChange={() => setSelectedReferral(null)}
-        >
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Referral Details</DialogTitle>
-              <DialogDescription>
-                Complete information about this student referral
-              </DialogDescription>
-            </DialogHeader>
-            {selectedReferral && (
-              <div className="space-y-6 mt-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {getStatusIcon(selectedReferral.status)}
-                    <Badge
-                      variant={getStatusColor(selectedReferral.status) as any}
-                    >
-                      {selectedReferral.status}
-                    </Badge>
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    Created {selectedReferral.createdAt.toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label className="text-sm font-medium text-muted-foreground">
-                      FROM COUNSELOR
-                    </Label>
-                    <p className="text-lg font-medium mt-1">
-                      {getCounselorName(selectedReferral.fromCounselorId)}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-muted-foreground">
-                      TO COUNSELOR
-                    </Label>
-                    <p className="text-lg font-medium mt-1">
-                      {getCounselorName(selectedReferral.toCounselorId)}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    STUDENT
-                  </Label>
-                  <p className="text-lg font-medium mt-1">
-                    {getStudentName(selectedReferral.studentId)}
-                  </p>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    REASON FOR REFERRAL
-                  </Label>
-                  <p className="text-sm mt-2 p-3 bg-gray-50 rounded-lg">
-                    {selectedReferral.reason}
-                  </p>
-                </div>
-
-                {selectedReferral.notes && (
-                  <div>
-                    <Label className="text-sm font-medium text-muted-foreground">
-                      ADDITIONAL NOTES
-                    </Label>
-                    <p className="text-sm mt-2 p-3 bg-gray-50 rounded-lg">
-                      {selectedReferral.notes}
-                    </p>
-                  </div>
-                )}
-
-                {selectedReferral.status === "pending" && (
-                  <div className="flex gap-4 justify-end pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        handleUpdateReferralStatus(
-                          selectedReferral.id,
-                          "declined"
-                        );
-                        setSelectedReferral(null);
-                      }}
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Decline Referral
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        handleUpdateReferralStatus(
-                          selectedReferral.id,
-                          "accepted"
-                        );
-                        setSelectedReferral(null);
-                      }}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Accept Referral
-                    </Button>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             )}
-          </DialogContent>
-        </Dialog> */}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
