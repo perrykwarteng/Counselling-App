@@ -1,6 +1,8 @@
-// appointment.model.ts
-import { Schema, model, Types, Document } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 
+// --------------------
+// Types
+// --------------------
 export type AppointmentStatus =
   | "pending"
   | "accepted"
@@ -11,12 +13,12 @@ export type AppointmentStatus =
 export type AppointmentMode = "chat" | "video" | "in-person";
 
 export interface Appointment extends Document {
-  student_id: Types.ObjectId;
-  counselor_id: Types.ObjectId;
+  student_id: string;           // store model-level ids (string/uuid), NOT ObjectIds
+  counselor_id: string;
   scheduled_at: Date;
   status: AppointmentStatus;
   mode: AppointmentMode;
-  referral_id?: Types.ObjectId;
+  referral_id?: string;
   in_person_location?: string;
   notes?: string;
   created_at: Date;
@@ -25,31 +27,43 @@ export interface Appointment extends Document {
 
 const AppointmentSchema = new Schema<Appointment>(
   {
-    student_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    counselor_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    student_id: { type: String, required: true },
+    counselor_id: { type: String, required: true },
     scheduled_at: { type: Date, required: true },
     status: {
       type: String,
       enum: ["pending", "accepted", "rejected", "completed", "cancelled"],
       default: "pending",
-      index: true,
     },
     mode: {
       type: String,
       enum: ["chat", "video", "in-person"],
       required: true,
     },
-    referral_id: { type: Schema.Types.ObjectId, ref: "Referral" },
+    referral_id: { type: String },
     in_person_location: { type: String },
     notes: { type: String },
   },
-  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
+  {
+    timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
+  }
 );
 
+// --------------------
+// Indexes
+// --------------------
+// Compound index to quickly query counselor appointments by status
 AppointmentSchema.index({ counselor_id: 1, status: 1 });
+
+// Index to quickly find appointments for a student
 AppointmentSchema.index({ student_id: 1 });
+
+// Index for scheduling queries
 AppointmentSchema.index({ scheduled_at: 1 });
 
+// --------------------
+// Model Export
+// --------------------
 export const AppointmentModel = model<Appointment>(
   "Appointment",
   AppointmentSchema

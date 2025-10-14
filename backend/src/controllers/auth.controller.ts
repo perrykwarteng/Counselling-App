@@ -386,7 +386,7 @@ export const login = async (req: Request, res: Response) => {
     httpOnly: true,
     sameSite: "lax",
     secure: false,
-    maxAge: 30 * 60 * 1000,
+    maxAge: 20 * 24 * 60 * 60 * 1000,
     path: "/",
   });
   res.cookie("refresh_token", refresh, {

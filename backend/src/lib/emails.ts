@@ -70,9 +70,9 @@ export async function sendCounselorOnboarding(
   uid: string,
   expiresInMinutes = 30
 ) {
-  const verifyUrl = `${env.APP_URL}/auth/optVerify?uid=${encodeURIComponent(
-    uid
-  )}`;
+  const verifyUrl = `${
+    env.APP_FRONTEND_URL
+  }/auth/optVerify?uid=${encodeURIComponent(uid)}`;
 
   const subject = "Counselor Account Setup — Temp Password & OTP";
   const html = buildEmailTemplate(
@@ -124,5 +124,78 @@ export async function sendCounselorOnboarding(
   OTP: ${otp}
   Verify: ${verifyUrl}`);
     return;
+  }
+}
+
+export async function sendVideoSessionEmail(
+  to: string,
+  scheduledAt: Date,
+  joinUrl: string,
+  meta?: Record<string, any>
+) {
+  const html = buildEmailTemplate(
+    "Your Video Session is Ready 🎥",
+    `
+    <p>Hello,</p>
+    <p>Your video session is scheduled for ${scheduledAt.toLocaleString()}.</p>
+    <p>Click the link below to join your session:</p>
+    <p><a href="${joinUrl}" class="button">Join Video Session</a></p>
+    `
+  );
+
+  const text = `Hello,\n\nYour video session is scheduled for ${scheduledAt.toLocaleString()}.\nJoin here: ${joinUrl}`;
+
+  await sendEmail(to, "Your Video Session is Ready", text, html);
+
+  if (env.NODE_ENV === "development") {
+    console.log(`[DEV] Video session email for ${to}: ${joinUrl}`, meta);
+  }
+}
+
+export async function sendInPersonSessionEmail(
+  to: string,
+  details: string,
+  meta?: Record<string, any>
+) {
+  const html = buildEmailTemplate(
+    "Your In-Person Session is Scheduled 📍",
+    `
+    <p>Hello,</p>
+    <p>Your in-person counseling session has been scheduled:</p>
+    <p><b>${details}</b></p>
+    <p>Please arrive a few minutes early and bring any necessary materials.</p>
+    `
+  );
+
+  const text = `Hello,\n\nYour in-person counseling session is scheduled:\n${details}\n\nPlease arrive a few minutes early.`;
+
+  await sendEmail(to, "In-Person Session Scheduled", text, html);
+
+  if (env.NODE_ENV === "development") {
+    console.log(`[DEV] In-person session email for ${to}: ${details}`, meta);
+  }
+}
+
+export async function sendChatSessionEmail(
+  to: string,
+  chatLink: string,
+  meta?: Record<string, any>
+) {
+  const html = buildEmailTemplate(
+    "Your Chat Session is Ready 💬",
+    `
+    <p>Hello,</p>
+    <p>Your chat session is now open with your counselor.</p>
+    <p>Click the link below to start chatting:</p>
+    <p><a href="${chatLink}" class="button">Go to Chat Session</a></p>
+    `
+  );
+
+  const text = `Hello,\n\nYour chat session is now open with your counselor.\nJoin here: ${chatLink}`;
+
+  await sendEmail(to, "Chat Session Open", text, html);
+
+  if (env.NODE_ENV === "development") {
+    console.log(`[DEV] Chat session email for ${to}: ${chatLink}`, meta);
   }
 }

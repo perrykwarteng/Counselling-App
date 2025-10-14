@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {asyncHandler} from "../utils/asyncHandler";
+import { asyncHandler } from "../utils/asyncHandler";
 import { requireAuth, requireRole } from "../middleware/requireAuth";
 import {
   createAppointment,
@@ -14,19 +14,19 @@ import {
 
 const router = Router();
 router.post(
-  "/",
+  "/appointments",
   requireAuth,
   requireRole(["student"]),
   createApptRules as any,
   asyncHandler(createAppointment)
 );
 router.patch(
-  "/:id/status",
+  "/appointments/:id/status",
   requireAuth,
   requireRole(["counselor", "admin"]),
   updateApptStatusRules as any,
   asyncHandler(updateAppointment)
 );
-router.get("/", requireAuth, asyncHandler(listMyAppointments));
-router.get("/:id", requireAuth, asyncHandler(getAppointment));
+router.get("/appointments", requireAuth, asyncHandler(listMyAppointments));
+router.get("/appointments/:id", requireAuth, asyncHandler(getAppointment));
 export default router;

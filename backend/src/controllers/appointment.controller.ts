@@ -1,68 +1,123 @@
 import { Response } from "express";
+import { isValidObjectId } from "mongoose";
 import { User } from "../models/user.model";
 import { AppointmentModel } from "../models/appointment.model";
 import { VideoSessionModel } from "../models/videoSession.model";
 import { ChatMessageModel } from "../models/chatMessage.model";
-import { sendEmail, sendSMS } from "../notifications";
+import { sendEmail } from "../lib/mailer";
 import { AuthedRequest } from "../middleware/requireAuth";
-import { v4 as uuidv4 } from "uuid";
-import { writeAdminLog } from "./adminLogs.controller"; // ✅ logging
+import { writeAdminLog } from "./adminLogs.controller";
+import {
+  sendChatSessionEmail,
+  sendInPersonSessionEmail,
+  sendVideoSessionEmail,
+} from "../lib/emails";
+import { env } from "../config";
 
-/* small helpers (same pattern as auth logs) */
-function reqId(req: AuthedRequest) {
+function reqId(req: AuthedRequest): string | undefined {
   return (
     (req as any).request_id ||
-    (req.headers["x-request-id"] as string) ||
-    undefined
+    (req.headers["x-request-id"] as string | undefined)
   );
 }
-function ua(req: AuthedRequest) {
+function ua(req: AuthedRequest): string | undefined {
   return req.get?.("user-agent") || undefined;
 }
-function ip(req: AuthedRequest) {
-  return (
-    (req.headers["x-forwarded-for"] as string) || (req as any).ip || undefined
-  );
+function ip(req: AuthedRequest): string | undefined {
+  const xf = (req.headers["x-forwarded-for"] as string) || "";
+  const first = xf
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)[0];
+  return first || ((req as any).ip as string | undefined);
+}
+const authSub = (req: AuthedRequest) => String(req.user?.sub ?? "");
+
+function buildJoinUrl(apptId: string) {
+  const base = env.APP_FRONTEND_URL || "http://localhost:3000/";
+  return `${base.replace(/\/+$/, "")}/appointment/video/${String(apptId)}`;
+}
+
+type MinimalUser = { _id?: string; email?: string };
+const STATUS = new Set([
+  "pending",
+  "accepted",
+  "rejected",
+  "cancelled",
+  "completed",
+]);
+
+async function findUserByAnyId(id: string): Promise<MinimalUser | null> {
+  if (!id) return null;
+  return await User.findOne({
+    $or: [
+      { _id: id },
+      { id },
+      { auth_id: id },
+      { auth_sub: id },
+      { external_id: id },
+      { user_id: id },
+    ],
+  })
+    .select({ email: 1, _id: 1 })
+    .lean<MinimalUser>();
+}
+
+function humanStatus(s: string) {
+  switch (s) {
+    case "pending":
+      return "Pending";
+    case "accepted":
+      return "Accepted";
+    case "rejected":
+      return "Rejected";
+    case "cancelled":
+      return "Cancelled";
+    case "completed":
+      return "Completed";
+    default:
+      return s;
+  }
 }
 
 export async function createAppointment(req: AuthedRequest, res: Response) {
   try {
-    if (req.user?.role !== "student") {
+    const role = req.user?.role;
+    const me = authSub(req);
+
+    if (role !== "student") {
       await writeAdminLog({
         level: "warn",
         module: "appointments",
         message: "Create: forbidden (only students can book)",
-        user_id: String(req.user?.sub ?? ""),
+        user_id: me,
         request_id: reqId(req),
-        meta: { role: req.user?.role, ip: ip(req), ua: ua(req) },
+        meta: { role, ip: ip(req), ua: ua(req) },
       });
       return res
         .status(403)
         .json({ error: "Only students can book appointments" });
     }
 
-    const {
-      counselor_id,
-      scheduled_at,
-      mode,
-      referral_id,
-      in_person_location,
-      notes,
-    } = req.body as {
-      counselor_id: string;
-      scheduled_at: string;
-      mode: "chat" | "video" | "in-person";
+    const body = req.body as {
+      counselor_id?: string;
+      scheduled_at?: string;
+      mode?: "chat" | "video" | "in-person";
       referral_id?: string;
       in_person_location?: string;
       notes?: string;
     };
+
+    const counselor_id = String(body.counselor_id ?? "");
+    const scheduled_at = String(body.scheduled_at ?? "");
+    const mode = body.mode;
 
     if (!counselor_id || !scheduled_at || !mode) {
       await writeAdminLog({
         level: "warn",
         module: "appointments",
         message: "Create: missing required fields",
-        user_id: String(req.user?.sub ?? ""),
+        user_id: me,
         request_id: reqId(req),
         meta: { counselor_id, scheduled_at, mode, ip: ip(req), ua: ua(req) },
       });
@@ -72,74 +127,120 @@ export async function createAppointment(req: AuthedRequest, res: Response) {
     }
 
     const appt = await AppointmentModel.create({
-      student_id: String(req.user.sub),
-      counselor_id: String(counselor_id),
+      student_id: me,
+      counselor_id,
       scheduled_at: new Date(scheduled_at),
       mode,
-      referral_id,
-      in_person_location,
-      notes,
-    });
+      referral_id: body.referral_id,
+      in_person_location: body.in_person_location,
+      notes: body.notes,
+      status: "pending",
+    } as any);
 
     await writeAdminLog({
       level: "audit",
       module: "appointments",
       message: "Create: appointment created",
-      user_id: String(req.user.sub),
+      user_id: me,
       request_id: reqId(req),
       meta: {
         appointment_id: String(appt._id),
         counselor_id,
         scheduled_at,
         mode,
-        referral_id: referral_id ?? null,
+        referral_id: body.referral_id ?? null,
         ip: ip(req),
         ua: ua(req),
       },
     });
 
-    res.status(201).json(appt);
+    // Notify counselor when student books
+    const counselor = await findUserByAnyId(counselor_id);
+    const when = new Date(appt.scheduled_at).toLocaleString();
+    if (counselor?.email) {
+      await sendEmail(
+        counselor.email,
+        "New appointment request",
+        `You have a new ${appt.mode} appointment request from a student on ${when}. Status: Pending.`,
+        `<p>Hi Counselor,</p>
+         <p>You have a new <b>${appt.mode}</b> appointment request from a student.</p>
+         <p><b>When:</b> ${when}</p>
+         <p><b>Status:</b> Pending</p>
+         <p>Please review and accept or decline in your dashboard.</p>`
+      );
+    }
+
+    return res.status(201).json(appt);
   } catch (e: any) {
     await writeAdminLog({
       level: "error",
       module: "appointments",
       message: "Create: server error",
-      user_id: String(req.user?.sub ?? ""),
+      user_id: authSub(req),
       request_id: reqId(req),
       meta: { error: String(e?.message || e), ip: ip(req), ua: ua(req) },
     });
-    res.status(400).json({ error: e.message });
+    return res.status(400).json({ error: String(e?.message || e) });
   }
 }
 
 export async function updateAppointment(req: AuthedRequest, res: Response) {
-  const appt = await AppointmentModel.findById(req.params.id);
+  const id = String(req.params?.id ?? "");
+  if (!isValidObjectId(id)) {
+    await writeAdminLog({
+      level: "warn",
+      module: "appointments",
+      message: "Update: invalid id",
+      user_id: authSub(req),
+      request_id: reqId(req),
+      meta: { id, ip: ip(req), ua: ua(req) },
+    });
+    return res.status(400).json({ error: "Invalid appointment id" });
+  }
+
+  const appt = await AppointmentModel.findById(id);
   if (!appt) {
     await writeAdminLog({
       level: "warn",
       module: "appointments",
       message: "Update: appointment not found",
-      user_id: String(req.user?.sub ?? ""),
+      user_id: authSub(req),
       request_id: reqId(req),
-      meta: { id: req.params.id, ip: ip(req), ua: ua(req) },
+      meta: { id, ip: ip(req), ua: ua(req) },
     });
     return res.status(404).json({ error: "Not found" });
   }
 
-  if (
-    String(appt.counselor_id) !== String(req.user!.sub) &&
-    req.user!.role !== "admin"
-  ) {
+  const me = authSub(req);
+  const isCounselor = String((appt as any).counselor_id) === me;
+  const isAdmin = req.user?.role === "admin";
+  const isStudent = String((appt as any).student_id) === me;
+
+  const next = String((req.body as { status?: string }).status || "");
+  if (!STATUS.has(next)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  const prevStatus = (appt as any).status as string | undefined;
+  const canTransition =
+    isCounselor ||
+    isAdmin ||
+    (isStudent &&
+      ["pending", "accepted"].includes(prevStatus || "pending") &&
+      next === "cancelled");
+
+  if (!canTransition) {
     await writeAdminLog({
       level: "warn",
       module: "appointments",
-      message: "Update: forbidden (not counselor/admin)",
-      user_id: String(req.user?.sub ?? ""),
+      message: "Update: forbidden transition",
+      user_id: me,
       request_id: reqId(req),
       meta: {
         id: String(appt._id),
-        counselor_id: String(appt.counselor_id),
-        actor_role: req.user!.role,
+        from: prevStatus ?? null,
+        to: next,
+        actor_role: req.user?.role,
         ip: ip(req),
         ua: ua(req),
       },
@@ -147,199 +248,204 @@ export async function updateAppointment(req: AuthedRequest, res: Response) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
-  const prevStatus = appt.status;
-  appt.status = (req.body as any).status;
+  (appt as any).status = next as any;
   await appt.save();
 
   await writeAdminLog({
     level: "audit",
     module: "appointments",
     message: "Update: status changed",
-    user_id: String(req.user!.sub),
+    user_id: me,
     request_id: reqId(req),
     meta: {
       appointment_id: String(appt._id),
       from: prevStatus ?? null,
-      to: appt.status ?? null,
-      mode: appt.mode,
+      to: (appt as any).status ?? null,
+      mode: (appt as any).mode,
       ip: ip(req),
       ua: ua(req),
     },
   });
 
-  const student = await User.findById(String(appt.student_id)).lean();
+  // Fetch student email
+  const studentId = String((appt as any).student_id);
+  const student = await User.findOne({
+    $or: [
+      { _id: studentId },
+      { id: studentId },
+      { auth_id: studentId },
+      { auth_sub: studentId },
+      { external_id: studentId },
+      { user_id: studentId },
+    ],
+  })
+    .select({ email: 1 })
+    .lean<MinimalUser>();
 
-  if ((req.body as any).status === "accepted") {
-    if (appt.mode === "video") {
-      let vs = await VideoSessionModel.findOne({ appointment_id: appt._id });
-      let created = false;
-      if (!vs) {
-        vs = await VideoSessionModel.create({
-          appointment_id: appt._id,
-          session_token: uuidv4(),
-        });
-        created = true;
+  let join_url: string | undefined;
+
+  if (next === "accepted") {
+    const metaData = {
+      user_id: me,
+      request_id: reqId(req),
+      appointment_id: String(appt._id),
+    };
+
+    // Video session
+    if ((appt as any).mode === "video") {
+      // Keep a record if you want audits; Metered doesn't need this token hash
+      const existing = await VideoSessionModel.findOne({
+        appointment_id: (appt as any)._id,
+      });
+      if (!existing) {
+        await VideoSessionModel.create({
+          appointment_id: (appt as any)._id,
+          session_token_hash: null,
+          expires_at: null,
+          revoked: false,
+        } as any);
       }
-      await writeAdminLog({
-        level: "info",
-        module: "appointments",
-        message: "Update: video session ensured",
-        user_id: String(req.user!.sub),
-        request_id: reqId(req),
-        meta: {
-          appointment_id: String(appt._id),
-          created,
-        },
-      });
 
-      const joinUrl = `${process.env.APP_BASE_URL}/video/${appt._id}?t=${vs.session_token}`;
-      await sendEmail(
-        student?.email,
-        "Your Video Session is Confirmed",
-        `<p>Your video session is confirmed for ${new Date(
-          appt.scheduled_at
-        ).toLocaleString()}.</p><p><a href="${joinUrl}">Join video session</a></p>`
+      join_url = buildJoinUrl(String((appt as any)._id));
+      await sendVideoSessionEmail(
+        student?.email!,
+        new Date((appt as any).scheduled_at),
+        join_url,
+        metaData
       );
-      await sendSMS(
-        student?.phone,
-        `Video session confirmed. Join link: ${joinUrl}`
-      );
-      await writeAdminLog({
-        level: "info",
-        module: "appointments",
-        message: "Update: video notifications sent",
-        user_id: String(req.user!.sub),
-        request_id: reqId(req),
-        meta: {
-          appointment_id: String(appt._id),
-          email: student?.email ?? null,
-          phone: student?.phone ?? null,
-        },
-      });
     }
 
-    if (appt.mode === "chat") {
+    // Chat session
+    if ((appt as any).mode === "chat") {
       await ChatMessageModel.create({
-        session_id: appt._id,
-        sender_id: String(appt.counselor_id),
+        session_id: (appt as any)._id,
+        sender_id: String((appt as any).counselor_id),
         content:
           "Hello! Your chat session is now open. How can I support you today?",
         is_system: true,
-      });
-      await writeAdminLog({
-        level: "info",
-        module: "appointments",
-        message: "Update: chat welcome seeded",
-        user_id: String(req.user!.sub),
-        request_id: reqId(req),
-        meta: { appointment_id: String(appt._id) },
-      });
+      } as any);
 
-      const link = `${process.env.APP_BASE_URL}/appointments/${appt._id}?tab=chat`;
-      await sendEmail(
-        student?.email,
-        "Your Chat Session is Open",
-        `<p>Your counselor accepted your chat session.</p><p><a href="${link}">Start chatting</a></p>`
-      );
-      await sendSMS(student?.phone, `Chat session accepted. Open: ${link}`);
-      await writeAdminLog({
-        level: "info",
-        module: "appointments",
-        message: "Update: chat notifications sent",
-        user_id: String(req.user!.sub),
-        request_id: reqId(req),
-        meta: {
-          appointment_id: String(appt._id),
-          email: student?.email ?? null,
-          phone: student?.phone ?? null,
-        },
-      });
+      const chatLink = `${env.APP_FRONTEND_URL.replace(
+        /\/+$/,
+        ""
+      )}/appointments/${String((appt as any)._id)}?tab=chat`;
+
+      await sendChatSessionEmail(student?.email!, chatLink, metaData);
     }
 
-    if (appt.mode === "in-person") {
-      const details = `${new Date(appt.scheduled_at).toLocaleString()} at ${
-        appt.in_person_location || "counseling office"
+    // In-person session
+    if ((appt as any).mode === "in-person") {
+      const details = `${new Date(
+        (appt as any).scheduled_at
+      ).toLocaleString()} at ${
+        (appt as any).in_person_location || "counseling office"
       }`;
-      await sendEmail(
-        student?.email,
-        "In-person Session Confirmed",
-        `<p>See you ${details}.</p>`
-      );
-      await sendSMS(student?.phone, `In-person session confirmed: ${details}`);
-      await writeAdminLog({
-        level: "info",
-        module: "appointments",
-        message: "Update: in-person notifications sent",
-        user_id: String(req.user!.sub),
-        request_id: reqId(req),
-        meta: {
-          appointment_id: String(appt._id),
-          details,
-          email: student?.email ?? null,
-          phone: student?.phone ?? null,
-        },
-      });
+
+      await sendInPersonSessionEmail(student?.email!, details, metaData);
     }
   }
 
-  res.json(appt);
+  const payload = (appt as any).toObject
+    ? (appt as any).toObject()
+    : (appt as any);
+  return res.json({ ...payload, ...(join_url ? { join_url } : {}) });
 }
 
 export async function listMyAppointments(req: AuthedRequest, res: Response) {
-  const role = req.user!.role;
-  const myId = String(req.user!.sub);
+  const role = req.user?.role;
+  const me = authSub(req);
+
+  if (!me) {
+    await writeAdminLog({
+      level: "warn",
+      module: "appointments",
+      message: "List mine: no auth sub",
+      user_id: "",
+      request_id: reqId(req),
+      meta: { role, ip: ip(req), ua: ua(req) },
+    });
+    return res.json([]);
+  }
 
   const query =
     role === "student"
-      ? { student_id: myId }
+      ? { student_id: me }
       : role === "counselor"
-      ? { counselor_id: myId }
+      ? { counselor_id: me }
       : {};
 
   const items = await AppointmentModel.find(query)
     .sort({ scheduled_at: -1 })
     .lean();
 
+  const enriched = items.map((i: any) =>
+    i.mode === "video" && i.status === "accepted"
+      ? { ...i, join_url: buildJoinUrl(String(i._id)) }
+      : i
+  );
+
   await writeAdminLog({
     level: "info",
     module: "appointments",
     message: "List mine",
-    user_id: myId,
+    user_id: me,
     request_id: reqId(req),
     meta: { role, count: items.length, ip: ip(req), ua: ua(req) },
   });
 
-  res.json(items);
+  return res.json(enriched);
 }
 
 export async function getAppointment(req: AuthedRequest, res: Response) {
-  const appt = await AppointmentModel.findById(req.params.id).lean();
+  const id = String(req.params?.id ?? "");
+  if (!isValidObjectId(id)) {
+    await writeAdminLog({
+      level: "warn",
+      module: "appointments",
+      message: "Get: invalid id",
+      user_id: authSub(req),
+      request_id: reqId(req),
+      meta: { id, ip: ip(req), ua: ua(req) },
+    });
+    return res.status(400).json({ error: "Invalid appointment id" });
+  }
+
+  const appt = await AppointmentModel.findById(id).lean();
   if (!appt) {
     await writeAdminLog({
       level: "warn",
       module: "appointments",
       message: "Get: not found",
-      user_id: String(req.user?.sub ?? ""),
+      user_id: authSub(req),
       request_id: reqId(req),
-      meta: { id: req.params.id, ip: ip(req), ua: ua(req) },
+      meta: { id, ip: ip(req), ua: ua(req) },
     });
     return res.status(404).json({ error: "Not found" });
   }
 
-  const me = String(req.user!.sub);
-  const studentId = String(appt.student_id);
-  const counselorId = String(appt.counselor_id);
+  const me = authSub(req);
+  const studentId = String((appt as any).student_id);
+  const counselorId = String((appt as any).counselor_id);
 
-  if (![studentId, counselorId].includes(me) && req.user!.role !== "admin") {
+  if (
+    !me ||
+    (!([studentId, counselorId] as string[]).includes(me) &&
+      req.user?.role !== "admin")
+  ) {
     await writeAdminLog({
       level: "warn",
       module: "appointments",
       message: "Get: forbidden",
       user_id: me,
       request_id: reqId(req),
-      meta: { id: String(appt._id), ip: ip(req), ua: ua(req) },
+      meta: { id: String((appt as any)._id), ip: ip(req), ua: ua(req) },
     });
     return res.status(403).json({ error: "Forbidden" });
+  }
+
+  let join_url: string | undefined;
+  if ((appt as any).mode === "video" && (appt as any).status === "accepted") {
+    join_url = buildJoinUrl(String((appt as any)._id));
   }
 
   await writeAdminLog({
@@ -348,8 +454,8 @@ export async function getAppointment(req: AuthedRequest, res: Response) {
     message: "Get: success",
     user_id: me,
     request_id: reqId(req),
-    meta: { id: String(appt._id), ip: ip(req), ua: ua(req) },
+    meta: { id: String((appt as any)._id), ip: ip(req), ua: ua(req) },
   });
 
-  res.json(appt);
+  return res.json({ ...appt, ...(join_url ? { join_url } : {}) });
 }

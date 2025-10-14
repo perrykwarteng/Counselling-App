@@ -11,7 +11,7 @@ import { requireAuth, requireRole } from "../middleware/requireAuth";
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole(["admin"]));
+router.use(requireRole(["admin", "student"]));
 
 router.get("/counselors", listCounselors);
 router.get("/counselors/:id", getCounselor);

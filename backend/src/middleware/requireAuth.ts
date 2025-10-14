@@ -1,12 +1,28 @@
-import { Request, Response, NextFunction } from "express";
-import { verifyAccess } from "../lib/jwt"; // <-- use your shared helper
+// src/middleware/requireAuth.ts
+import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type { Role } from "../models/user.model";
+import { verifyAccess } from "../lib/jwt";
+
+/** What we expect back from verifyAccess */
+type JwtPayload = {
+  sub: string | number;
+  role: Role;
+  name?: string;
+  email?: string;
+};
+
+export type AuthedUser = {
+  sub: string;
+  role: Role;
+  name?: string;
+  email?: string;
+};
 
 export interface AuthedRequest extends Request {
-  user?: { sub: string; role: "student" | "counselor" | "admin" };
+  user: AuthedUser;
 }
 
 function getBearerToken(req: Request): string | undefined {
-  // Both cases just in case
   const h =
     req.headers.authorization || (req.headers as any).Authorization || "";
   if (typeof h === "string" && h.trim().toLowerCase().startsWith("bearer ")) {
@@ -15,36 +31,36 @@ function getBearerToken(req: Request): string | undefined {
   return undefined;
 }
 
-export function requireAuth(
-  req: AuthedRequest,
-  res: Response,
-  next: NextFunction
-) {
+export const requireAuth: RequestHandler = (req, res, next) => {
   const bearer = getBearerToken(req);
   const cookieToken = (req as any).cookies?.access_token as string | undefined;
   const token = bearer || cookieToken;
 
-  if (!token) {
+  if (!token)
     return res.status(401).json({ error: "No access token provided" });
+
+  const payload = verifyAccess(token) as Partial<JwtPayload> | null | undefined;
+  if (!payload || !payload.sub || !payload.role) {
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  const payload = verifyAccess(token); // <-- SAME logic/secret/options as everywhere else
-  if (!payload) {
-    return res.status(401).json({ error: "Invalid or expired token" }); // 401 so client refreshes
-  }
+  // Narrow and attach a properly-typed user object
+  (req as AuthedRequest).user = {
+    sub: String(payload.sub),
+    role: payload.role as Role,
+    name: payload.name,
+    email: payload.email,
+  };
 
-  req.user = { sub: String(payload.sub), role: payload.role as any };
-  return next();
-}
+  next();
+};
 
-export function requireRole(allowed: Array<"student" | "counselor" | "admin">) {
-  return (req: AuthedRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    if (!allowed.includes(req.user.role)) {
+export const requireRole =
+  (allowed: Array<"student" | "counselor" | "admin">): RequestHandler =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as Partial<AuthedRequest>).user;
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (!allowed.includes(user.role))
       return res.status(403).json({ error: "Forbidden" });
-    }
     next();
   };
-}

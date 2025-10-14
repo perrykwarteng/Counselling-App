@@ -7,7 +7,7 @@ import {
   updateStudentProfile,
   getCounselorProfile,
   updateCounselorProfile,
-} from "../controllers/profile.controller";
+} from "../";
 
 const router = Router();
 router.get(

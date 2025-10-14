@@ -2,11 +2,11 @@ import { Schema, model, Types, Document } from "mongoose";
 
 export interface VideoSession extends Document {
   appointment_id: Types.ObjectId;
-  session_token: string;
-  started_at?: Date;
-  ended_at?: Date;
-  created_at: Date;
-  updated_at: Date;
+  session_token_hash: string | null;
+  expires_at: Date | null;
+  revoked: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const VideoSessionSchema = new Schema<VideoSession>(
@@ -18,16 +18,12 @@ const VideoSessionSchema = new Schema<VideoSession>(
       required: true,
       index: true,
     },
-    session_token: { type: String, required: true },
-    started_at: { type: Date },
-    ended_at: { type: Date },
+    session_token_hash: { type: String, default: null },
+    expires_at: { type: Date, default: null },
+    revoked: { type: Boolean, default: false },
   },
-  {
-    timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
-  }
+  { timestamps: true }
 );
-
-VideoSessionSchema.index({ appointment_id: 1, session_token: 1 });
 
 export const VideoSessionModel = model<VideoSession>(
   "VideoSession",

@@ -4,10 +4,11 @@ import cors from "cors";
 import routes from "./routes";
 import { errorHandler } from "./middleware/error";
 import { setupSockets } from "./sockets";
-import http from 'http';
+import http from "http";
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", 1);
   app.use(
     cors({
       origin: ["http://localhost:3000", "https://your-frontend.com"],
