@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -26,155 +27,102 @@ import {
   Play,
   Clock,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Link as LinkIcon,
 } from "lucide-react";
+
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StudentSidebar } from "@/components/studentSidebar/StudentSidebar";
+import {
+  StudentResourcesProvider,
+  useStudentResources,
+} from "@/Context/StudentResourcesProvider";
+import { Modal } from "@/components/Modal/modal";
 
-const categories = [
-  "All",
-  "Stress Management",
-  "Mindfulness",
-  "Academic Success",
-  "Anxiety",
-  "Depression",
-  "Relationships",
-];
+/* ---------- Types matching your provider ---------- */
+type ResourceType = "video" | "article" | "pdf" | "other" | undefined;
+type Resource = {
+  id: string;
+  title: string;
+  description?: string | null;
+  type?: ResourceType;
+  file_url?: string | null;
+  created_at: string;
+};
 
-const mockResources = [
-  {
-    id: 1,
-    title: "Managing Stress During Exams",
-    description:
-      "Tips and techniques to manage exam-related stress effectively.",
-    category: "Stress Management",
-    type: "article",
-    duration: "5 min read",
-    link: "#",
-  },
-  {
-    id: 2,
-    title: "Mindfulness Meditation for Beginners",
-    description:
-      "A guided video session to help you start practicing mindfulness.",
-    category: "Mindfulness",
-    type: "video",
-    duration: "12 min",
-    link: "#",
-  },
-  {
-    id: 3,
-    title: "Overcoming Academic Burnout",
-    description: "Learn strategies to prevent and recover from burnout.",
-    category: "Academic Success",
-    type: "pdf",
-    duration: "8 pages",
-    link: "#",
-  },
-  {
-    id: 4,
-    title: "Coping with Anxiety",
-    description: "Practical exercises to handle anxiety in everyday life.",
-    category: "Anxiety",
-    type: "article",
-    duration: "7 min read",
-    link: "#",
-  },
-  {
-    id: 5,
-    title: "Daily Mindfulness Routine",
-    description: "Simple daily practices to stay grounded and mindful.",
-    category: "Mindfulness",
-    type: "video",
-    duration: "10 min",
-    link: "#",
-  },
-  {
-    id: 6,
-    title: "Understanding Depression",
-    description:
-      "An educational resource to understand the symptoms and coping strategies for depression.",
-    category: "Depression",
-    type: "pdf",
-    duration: "15 pages",
-    link: "#",
-  },
-  {
-    id: 7,
-    title: "Healthy Relationship Tips",
-    description:
-      "Guidelines for building and maintaining healthy relationships.",
-    category: "Relationships",
-    type: "article",
-    duration: "6 min read",
-    link: "#",
-  },
-  {
-    id: 8,
-    title: "Deep Breathing for Stress Relief",
-    description:
-      "Follow this guided video to calm your mind using deep breathing.",
-    category: "Stress Management",
-    type: "video",
-    duration: "5 min",
-    link: "#",
-  },
-  {
-    id: 9,
-    title: "Study Techniques for Better Focus",
-    description:
-      "Improve your concentration and learning with these study tips.",
-    category: "Academic Success",
-    type: "article",
-    duration: "9 min read",
-    link: "#",
-  },
-];
+/* ---------- Small helpers ---------- */
+function getIconByType(type?: ResourceType) {
+  switch (type) {
+    case "video":
+      return <Video className="h-5 w-5 text-red-600" />;
+    case "pdf":
+      return <FileText className="h-5 w-5 text-green-600" />;
+    case "article":
+    default:
+      return <BookOpen className="h-5 w-5 text-blue-600" />;
+  }
+}
+function typeBadgeClass(type?: ResourceType) {
+  switch (type) {
+    case "video":
+      return "bg-red-100 text-red-800";
+    case "pdf":
+      return "bg-green-100 text-green-800";
+    case "article":
+      return "bg-blue-100 text-blue-800";
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
+}
 
-export default function ResourcesPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
-  const [selectedType, setSelectedType] = useState("all");
+/* ---------- Page Body (uses provider) ---------- */
+function PageBody() {
+  const {
+    items,
+    total,
+    page,
+    pages,
+    loading,
+    error,
+    query,
+    typeFilter,
+    setQuery,
+    setTypeFilter,
+    ensureLoaded,
+    refetch,
+  } = useStudentResources();
 
-  const filteredResources = mockResources.filter((resource) => {
-    const matchesSearch =
-      resource.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      resource.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory =
-      selectedCategory === "All" || resource.category === selectedCategory;
-    const matchesType =
-      selectedType === "all" || resource.type === selectedType;
+  // Load once on mount
+  useEffect(() => {
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
-    return matchesSearch && matchesCategory && matchesType;
-  });
+  // Local controlled input (avoid refetch on each keypress)
+  const [qInput, setQInput] = useState(query);
 
-  const getResourceIcon = (type: string) => {
-    switch (type) {
-      case "video":
-        return <Video className="h-5 w-5 text-red-600" />;
-      case "article":
-        return <BookOpen className="h-5 w-5 text-blue-600" />;
-      case "pdf":
-        return <FileText className="h-5 w-5 text-green-600" />;
-      default:
-        return <BookOpen className="h-5 w-5 text-gray-600" />;
-    }
+  // Modal state
+  const [openRes, setOpenRes] = useState<Resource | null>(null);
+
+  const handleSearch = async () => {
+    setQuery(qInput);
+    await refetch({ page: 1 });
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "video":
-        return "bg-red-100 text-red-800";
-      case "article":
-        return "bg-blue-100 text-blue-800";
-      case "pdf":
-        return "bg-green-100 text-green-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
+  const handleTypeChange = async (
+    v: "all" | "video" | "article" | "pdf" | "other"
+  ) => {
+    setTypeFilter(v);
+    await refetch({ page: 1 });
+  };
+
+  const go = async (p: number) => {
+    await refetch({ page: p });
   };
 
   return (
-    <DashboardLayout title="Student Dashboard" sidebar={<StudentSidebar />}>
+    <>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
@@ -185,39 +133,33 @@ export default function ResourcesPage() {
           </p>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search & Filters */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="Search resources..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    value={qInput}
+                    onChange={(e) => setQInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSearch();
+                    }}
                     className="pl-10"
                   />
                 </div>
               </div>
 
               <Select
-                value={selectedCategory}
-                onValueChange={setSelectedCategory}
+                value={typeFilter}
+                onValueChange={(v) =>
+                  handleTypeChange(
+                    v as "all" | "video" | "article" | "pdf" | "other"
+                  )
+                }
               >
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={selectedType} onValueChange={setSelectedType}>
                 <SelectTrigger className="w-full md:w-48">
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
@@ -226,142 +168,316 @@ export default function ResourcesPage() {
                   <SelectItem value="article">Articles</SelectItem>
                   <SelectItem value="video">Videos</SelectItem>
                   <SelectItem value="pdf">PDFs</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
+
+              <Button onClick={handleSearch} disabled={loading}>
+                {loading ? "Searching..." : "Search"}
+              </Button>
             </div>
+            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
           </CardContent>
         </Card>
 
-        {/* Featured Resources */}
+        {/* Featured (first 3 newest from current list) */}
         <Card>
           <CardHeader>
             <CardTitle>Featured This Week</CardTitle>
-            <CardDescription>
-              Handpicked resources based on current trends and student feedback
-            </CardDescription>
+            <CardDescription>Newest uploads</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {mockResources.slice(0, 3).map((resource) => (
-                <div
-                  key={resource.id}
-                  className="p-4 border rounded-lg bg-gradient-to-br from-blue-50 to-green-50"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    {getResourceIcon(resource.type)}
-                    <Badge className={getTypeColor(resource.type)}>
-                      {resource.type}
-                    </Badge>
+            {loading && items.length === 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="p-4 border rounded-lg">
+                    <div className="h-4 w-28 bg-muted animate-pulse mb-3 rounded" />
+                    <div className="h-4 w-48 bg-muted animate-pulse mb-2 rounded" />
+                    <div className="h-4 w-36 bg-muted animate-pulse rounded" />
                   </div>
-                  <h3 className="font-medium mb-2">{resource.title}</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {resource.description}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm text-gray-600">
-                        {resource.duration}
-                      </span>
+                ))}
+              </div>
+            ) : items.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                No resources yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {items.slice(0, 3).map((r) => (
+                  <div
+                    key={r.id}
+                    className="p-4 border rounded-lg bg-gradient-to-br from-blue-50 to-green-50"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      {getIconByType(r.type)}
+                      <Badge className={typeBadgeClass(r.type)}>{r.type}</Badge>
                     </div>
-                    <Button size="sm">
-                      {resource.type === "video" ? (
-                        <Play className="mr-1 h-3 w-3" />
-                      ) : (
-                        <ExternalLink className="mr-1 h-3 w-3" />
-                      )}
-                      {resource.type === "video" ? "Watch" : "Read"}
-                    </Button>
+                    <h3 className="font-medium mb-2">{r.title}</h3>
+                    {r.description && (
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-3">
+                        {r.description}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-500">
+                        <Clock className="h-4 w-4 inline-block mr-1 text-gray-400" />
+                        {new Date(r.created_at).toLocaleDateString()}
+                      </div>
+                      <div className="flex gap-2">
+                        {r.file_url && (
+                          <Button size="sm" asChild>
+                            <a
+                              href={r.file_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {r.type === "video" ? (
+                                <Play className="mr-1 h-3 w-3" />
+                              ) : (
+                                <ExternalLink className="mr-1 h-3 w-3" />
+                              )}
+                              Open
+                            </a>
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setOpenRes(r)}
+                        >
+                          Details
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* All Resources */}
-
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               All Resources
               <span className="text-sm font-normal text-gray-500">
-                {filteredResources.length} resources found
+                {total} total
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {filteredResources.length > 0 ? (
+            {loading && items.length === 0 ? (
               <div className="space-y-4">
-                {filteredResources.map((resource) => (
+                {[...Array(5)].map((_, i) => (
                   <div
-                    key={resource.id}
-                    className="flex items-start space-x-4 p-4 border rounded-lg hover:shadow-md transition-shadow"
+                    key={i}
+                    className="flex items-start gap-4 p-4 border rounded-lg"
+                  >
+                    <div className="h-5 w-5 bg-muted animate-pulse rounded" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-56 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-72 bg-muted animate-pulse rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : items.length === 0 ? (
+              <div className="text-center py-12">
+                <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">No resources found</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Try adjusting your search or type filter
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {items.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-start gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow"
                   >
                     <div className="flex-shrink-0 mt-1">
-                      {getResourceIcon(resource.type)}
+                      {getIconByType(r.type)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">
-                            {resource.title}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-gray-900 truncate">
+                            {r.title}
                           </h3>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {resource.description}
-                          </p>
-                          <div className="flex items-center space-x-4 mt-3">
-                            <Badge variant="outline" className="text-xs">
-                              {resource.category}
-                            </Badge>
+                          {r.description && (
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                              {r.description}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3 mt-3">
                             <Badge
-                              className={`text-xs ${getTypeColor(
-                                resource.type
-                              )}`}
+                              className={`text-xs ${typeBadgeClass(r.type)}`}
                             >
-                              {resource.type}
+                              {r.type}
                             </Badge>
-                            <div className="flex items-center space-x-1 text-sm text-gray-500">
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
                               <Clock className="h-4 w-4" />
-                              <span>{resource.duration}</span>
+                              <span>
+                                {new Date(r.created_at).toLocaleString()}
+                              </span>
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-col space-y-2 ml-4">
-                          <Button size="sm">
-                            {resource.type === "video" ? (
-                              <>
-                                <Play className="mr-1 h-3 w-3" />
-                                Watch
-                              </>
-                            ) : (
-                              <>
+                        <div className="flex flex-col gap-2 ml-4">
+                          {r.file_url ? (
+                            <Button size="sm" asChild>
+                              <a
+                                href={r.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
                                 <ExternalLink className="mr-1 h-3 w-3" />
-                                {resource.type === "pdf" ? "Download" : "Read"}
-                              </>
-                            )}
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            Save
+                                Open
+                              </a>
+                            </Button>
+                          ) : (
+                            <Button size="sm" disabled>
+                              <ExternalLink className="mr-1 h-3 w-3" />
+                              Unavailable
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setOpenRes(r)}
+                          >
+                            Details
                           </Button>
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No resources found</p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Try adjusting your search terms or filters
-                </p>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={page <= 1 || loading}
+                    onClick={() => go(page - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-xs text-muted-foreground min-w-[64px] text-center">
+                    {page} / {Math.max(1, pages)}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={page >= pages || loading}
+                    onClick={() => go(page + 1)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Details Modal */}
+      <Modal
+        open={!!openRes}
+        onClose={() => setOpenRes(null)}
+        title="Resource Details"
+        description={openRes?.title}
+        footer={
+          <div className="flex gap-2">
+            {openRes?.file_url && (
+              <>
+                <Button asChild className="flex-1 rounded-xl">
+                  <a
+                    href={openRes.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    Open
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-xl"
+                  onClick={() => {
+                    // best-effort download via anchor; file must be served with correct headers
+                    const a = document.createElement("a");
+                    a.href = openRes.file_url!;
+                    a.download = openRes.title.replace(/\s+/g, "_");
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  Download
+                </Button>
+              </>
+            )}
+            {!openRes?.file_url && (
+              <Button disabled className="flex-1 rounded-xl">
+                <LinkIcon className="h-4 w-4 mr-1" />
+                No File
+              </Button>
+            )}
+          </div>
+        }
+      >
+        {openRes && (
+          <div className="grid gap-3 text-sm">
+            <div className="flex items-center justify-between">
+              <Badge className={typeBadgeClass(openRes.type)}>
+                {openRes.type || "other"}
+              </Badge>
+              <div className="text-xs text-muted-foreground">
+                <Clock className="inline h-3 w-3 mr-1" />
+                {new Date(openRes.created_at).toLocaleString()}
+              </div>
+            </div>
+
+            {openRes.description && (
+              <div className="grid gap-1">
+                <span className="text-muted-foreground">Description</span>
+                <p className="text-sm">{openRes.description}</p>
+              </div>
+            )}
+
+            {openRes.file_url && (
+              <div className="grid gap-1">
+                <span className="text-muted-foreground">File</span>
+                <a
+                  href={openRes.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline break-all"
+                >
+                  {openRes.file_url}
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}
+
+export default function ResourcesPage() {
+  return (
+    <DashboardLayout title="Student Dashboard" sidebar={<StudentSidebar />}>
+      <StudentResourcesProvider>
+        <PageBody />
+      </StudentResourcesProvider>
     </DashboardLayout>
   );
 }

@@ -1,11 +1,12 @@
+// Context/AdminResourcesProvider.tsx
 "use client";
 
 import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
+  useRef,
   useState,
   PropsWithChildren,
 } from "react";
@@ -13,14 +14,14 @@ import type { AxiosInstance } from "axios";
 import axios from "axios";
 import { createApiClient } from "@/lib/http/createApiClient";
 
-/* ========= Types ========= */
+/* ========= Types (unchanged) ========= */
 export type Resource = {
   id: string;
   title: string;
   description?: string | null;
   file_url?: string | null;
   type?: "video" | "article" | "pdf" | "other";
-  uploaded_by?: string | null; // user id
+  uploaded_by?: string | null;
   created_at: string;
   updated_at?: string;
 };
@@ -28,7 +29,7 @@ export type Resource = {
 export type CreateResourceInput = {
   title: string;
   description?: string | null;
-  file_url?: string | null; // if you upload, call /upload first to get this
+  file_url?: string | null;
   type?: "video" | "article" | "pdf" | "other";
 };
 
@@ -38,7 +39,6 @@ export type UpdateResourceInput = Partial<
   title?: string;
 };
 
-/* Backend list item shape (Mongo) */
 type ListItem = {
   _id: string;
   title: string;
@@ -61,6 +61,7 @@ type ResourcesContextValue = {
   query: string;
   setQuery: (q: string) => void;
 
+  ensureLoaded: () => Promise<void>; // ← NEW
   refetch: () => Promise<void>;
   getById: (id: string) => Promise<Resource | null>;
   create: (payload: CreateResourceInput) => Promise<Resource | null>;
@@ -72,7 +73,6 @@ type ResourcesContextValue = {
 };
 
 const ResourcesContext = createContext<ResourcesContextValue | null>(null);
-
 export function useAdminResources() {
   const ctx = useContext(ResourcesContext);
   if (!ctx)
@@ -82,7 +82,7 @@ export function useAdminResources() {
   return ctx;
 }
 
-/* ========= API client (same pattern as your students provider) ========= */
+/* ========= API client ========= */
 const ACCESS_KEY = "auth_access_token";
 const REFRESH_KEY = "auth_refresh_token";
 
@@ -95,7 +95,6 @@ function extractError(e: any): string {
     "Request failed"
   );
 }
-
 function mapList(arr: ListItem[]): Resource[] {
   return arr.map((r) => ({
     id: r._id,
@@ -118,7 +117,6 @@ function useAdminApi(): {
     (process.env.NEXT_PUBLIC_APP_BASE_URL &&
       `${process.env.NEXT_PUBLIC_APP_BASE_URL.replace(/\/$/, "")}`) ||
     "";
-
   const root =
     (process.env.NEXT_PUBLIC_APP_BASE_URL &&
       process.env.NEXT_PUBLIC_APP_BASE_URL.replace(/\/$/, "")) ||
@@ -181,11 +179,6 @@ function useAdminApi(): {
       console.log("➡️", (cfg.method || "get").toUpperCase(), full);
       return cfg;
     });
-    console.log(
-      "[Resources API] baseURL:",
-      api.defaults.baseURL ?? "(relative)"
-    );
-    console.log("[Refresh      ] URL    :", `${root}/auth/refresh`);
   }
 
   return { api, base, root };
@@ -201,13 +194,15 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
 
+  const hasLoadedRef = useRef(false);
+
   const refetch = useCallback(async () => {
     try {
       setLoading(true);
       setError(undefined);
 
       const { data } = await api.get<ListEnvelope>(
-        "/admin-resources/resources"
+        "/admin/resources/resources"
       );
       const list = Array.isArray(data) ? data : data?.items ?? [];
       setItems(mapList(list));
@@ -218,8 +213,10 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
     }
   }, [api]);
 
-  useEffect(() => {
-    refetch();
+  const ensureLoaded = useCallback(async () => {
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
+    await refetch();
   }, [refetch]);
 
   const getById = useCallback(
@@ -227,7 +224,7 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
       try {
         setError(undefined);
         const { data } = await api.get<{ resource: ListItem } | ListItem>(
-          `/admin-resources/resources/${id}`
+          `/admin/resources/resources/${id}`
         );
         const raw = (data as any).resource ?? data;
         if (!raw) return null;
@@ -247,7 +244,7 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.post<{ resource: ListItem } | ListItem>(
-          "/admin-resources/resources",
+          "/admin/resources/resources",
           payload
         );
 
@@ -272,7 +269,7 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.patch<{ resource: ListItem } | ListItem>(
-          `/admin-resources/resources/${id}`,
+          `/admin/resources/resources/${id}`,
           payload
         );
         const raw = (data as any).resource ?? data;
@@ -293,7 +290,7 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
     async (id: string) => {
       try {
         setError(undefined);
-        await api.delete(`/admin-resources/resources/${id}`);
+        await api.delete(`/admin/resources/resources/${id}`);
         setItems((prev) => prev.filter((r) => r.id !== id));
         return true;
       } catch (e) {
@@ -312,6 +309,8 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
       error,
       query,
       setQuery,
+
+      ensureLoaded, // ← NEW
       refetch,
       getById,
       create,
@@ -324,7 +323,7 @@ export function AdminResourcesProvider({ children }: ProviderProps) {
       loading,
       error,
       query,
-      setQuery,
+      ensureLoaded,
       refetch,
       getById,
       create,

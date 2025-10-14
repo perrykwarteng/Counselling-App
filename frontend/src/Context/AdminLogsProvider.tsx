@@ -6,6 +6,7 @@ import React, {
   useContext,
   useMemo,
   useState,
+  useRef,
   PropsWithChildren,
 } from "react";
 import type { AxiosInstance } from "axios";
@@ -93,8 +94,6 @@ function useAdminApi(): { api: AxiosInstance; base: string } {
       console.log("➡️", (cfg.method || "get").toUpperCase(), full);
       return cfg;
     });
-    console.log("[Admin API] baseURL:", api.defaults.baseURL ?? "(relative)");
-    console.log("[Refresh   ] URL    :", `${base}/auth/refresh`);
   }
 
   return { api, base };
@@ -105,6 +104,7 @@ type Ctx = {
   loading: boolean;
   error: string | null;
   items: LogRow[];
+  /** Manual (re)fetch */
   refetch: (
     filters?: Partial<{
       q: string;
@@ -114,6 +114,8 @@ type Ctx = {
       to: string; // ISO
     }>
   ) => Promise<void>;
+  /** Lazy one-time loader; no-op if already loaded */
+  ensureLoaded: () => Promise<void>;
 };
 
 const AdminLogsContext = createContext<Ctx | null>(null);
@@ -126,6 +128,10 @@ export function AdminLogsProvider({ children }: PropsWithChildren<{}>) {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<LogRow[]>([]);
 
+  // lazy-load control
+  const initializedRef = useRef(false);
+  const inflightRef = useRef<Promise<void> | null>(null);
+
   const normalize = (raw: any): LogRow => ({
     id: String(raw._id ?? raw.id ?? ""),
     timestamp: new Date(raw.timestamp).toISOString(),
@@ -137,21 +143,13 @@ export function AdminLogsProvider({ children }: PropsWithChildren<{}>) {
     meta: raw.meta ?? {},
   });
 
-  const refetch = useCallback(
-    async (
-      filters?: Partial<{
-        q: string;
-        level: LogLevel;
-        module: string;
-        from: string;
-        to: string;
-      }>
-    ) => {
+  const refetch: Ctx["refetch"] = useCallback(
+    async (filters) => {
       setLoading(true);
       setError(null);
       const t = toast.loading("Loading logs...");
       try {
-        const { data } = await api.get("/admin-logs/logs", {
+        const { data } = await api.get("/admin/logs/logs", {
           params: {
             ...(filters?.q ? { q: filters.q } : {}),
             ...(filters?.level ? { level: filters.level } : {}),
@@ -175,9 +173,25 @@ export function AdminLogsProvider({ children }: PropsWithChildren<{}>) {
     [api]
   );
 
+  const ensureLoaded = useCallback(async () => {
+    if (initializedRef.current) return;
+    if (inflightRef.current) return inflightRef.current;
+
+    inflightRef.current = (async () => {
+      try {
+        await refetch();
+      } finally {
+        initializedRef.current = true;
+        inflightRef.current = null;
+      }
+    })();
+
+    return inflightRef.current;
+  }, [refetch]);
+
   const value = useMemo(
-    () => ({ loading, error, items, refetch }),
-    [loading, error, items, refetch]
+    () => ({ loading, error, items, refetch, ensureLoaded }),
+    [loading, error, items, refetch, ensureLoaded]
   );
 
   return (

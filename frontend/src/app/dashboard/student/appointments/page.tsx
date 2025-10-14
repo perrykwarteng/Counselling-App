@@ -1,6 +1,7 @@
+// app/(student)/appointments/page.tsx
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -25,105 +26,91 @@ import {
   Plus,
   UserCircle2,
   ExternalLink,
+  RotateCcw,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react";
+
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StudentSidebar } from "@/components/studentSidebar/StudentSidebar";
 import { cn } from "@/lib/utils";
-import { CounselorSelect } from "@/components/CounselorSelect/CounselorSelect";
 import { Modal } from "@/components/Modal/modal";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
-/* ------------------ TYPES ------------------ */
-type AppointmentStatus = "pending" | "confirmed" | "cancelled" | "completed";
-type SessionMode = "video" | "chat" | "in-person";
+import {
+  AppointmentStatus,
+  useAppointments,
+  AppointmentMode,
+  Appointment,
+  Counselor,
+} from "@/Context/AppointmentProviders";
 
-type Appointment = {
+/* ------------------ SIMPLE TYPES ------------------ */
+type UIAppointmentStatus =
+  | "pending"
+  | "confirmed"
+  | "rejected"
+  | "cancelled"
+  | "completed";
+type UISessionMode = "video" | "chat" | "in-person";
+
+type UIAppointment = {
   id: string;
   counselorId: string;
-  date: string; // "YYYY-MM-DD"
-  time: string; // "HH:mm" 24h
-  type: SessionMode;
-  status: AppointmentStatus;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  type: UISessionMode;
+  status: UIAppointmentStatus;
   isAnonymous: boolean;
   note?: string;
 };
 
-type Counselor = {
-  id: string;
-  name: string;
-  type: "Psychologist" | "Therapist" | "Counselor";
-  isOnline: boolean;
-  rating: number;
-  totalSessions: number;
-  bio: string;
-  specializations: string[];
-};
-
-/* ------------------ MOCK DATA ------------------ */
-const mockCounselors: Counselor[] = [
-  {
-    id: "c1",
-    name: "Dr. Ama Mensah",
-    type: "Psychologist",
-    isOnline: true,
-    rating: 4.8,
-    totalSessions: 120,
-    bio: "Specialist in stress management and student mental health.",
-    specializations: ["Stress", "Anxiety", "Mindfulness"],
-  },
-  {
-    id: "c2",
-    name: "Mr. Kwesi Ofori",
-    type: "Therapist",
-    isOnline: false,
-    rating: 4.6,
-    totalSessions: 90,
-    bio: "Helping students with academic pressure and relationships.",
-    specializations: ["Academics", "Relationships", "Depression"],
-  },
-  {
-    id: "c3",
-    name: "Dr. Grace Owusu",
-    type: "Counselor",
-    isOnline: true,
-    rating: 4.9,
-    totalSessions: 200,
-    bio: "Focused on mindfulness and holistic wellbeing.",
-    specializations: ["Mindfulness", "Anxiety", "Self-growth"],
-  },
-];
-
-const mockAppointments: Appointment[] = [
-  {
-    id: "a1",
-    counselorId: "c1",
-    date: "2025-09-21",
-    time: "10:00",
-    type: "video",
-    status: "confirmed",
-    isAnonymous: false,
-  },
-  {
-    id: "a2",
-    counselorId: "c2",
-    date: "2025-09-03",
-    time: "14:00",
-    type: "chat",
-    status: "pending",
-    isAnonymous: true,
-    note: "First time",
-  },
-];
-
 /* ------------------ HELPERS ------------------ */
-function toISODateTime(date: string, time: string) {
-  try {
-    return new Date(`${date}T${time}:00`).toISOString();
-  } catch {
-    return null;
-  }
+function isFutureDateTime(date: string, time: string) {
+  const d = new Date(`${date}T${time}:00`);
+  return d.getTime() > Date.now();
 }
 
-const SessionBadge = ({ mode }: { mode: SessionMode }) => (
+function toISOWithOffset(date: string, time: string) {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date(date);
+  d.setHours(h, m, 0, 0);
+
+  const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
+  const offMin = d.getTimezoneOffset();
+  const sign = offMin <= 0 ? "+" : "-";
+  const hhOff = pad(Math.floor(Math.abs(offMin) / 60));
+  const mmOff = pad(Math.abs(offMin) % 60);
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:00${sign}${hhOff}:${mmOff}`;
+}
+
+const SessionBadge = ({ mode }: { mode: UISessionMode }) => (
   <Badge
     variant="outline"
     className={cn("capitalize", {
@@ -136,67 +123,164 @@ const SessionBadge = ({ mode }: { mode: SessionMode }) => (
   </Badge>
 );
 
+function mapStatusToUI(s?: AppointmentStatus): UIAppointmentStatus {
+  switch (s) {
+    case "accepted":
+      return "confirmed";
+    case "rejected":
+      return "rejected";
+    case "cancelled":
+      return "cancelled";
+    case "completed":
+      return "completed";
+    case "pending":
+    default:
+      return "pending";
+  }
+}
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mi}` };
+}
+
+function apiToUI(a: Appointment): UIAppointment {
+  const { date, time } = formatDateTime(a.scheduled_at);
+  return {
+    id: a._id,
+    counselorId: String(a.counselor_id),
+    date,
+    time,
+    type: a.mode as UISessionMode,
+    status: mapStatusToUI(a.status),
+    isAnonymous: false,
+    note: a.notes || undefined,
+  };
+}
+
 /* ------------------ COMPONENT ------------------ */
 export default function AppointmentsPage() {
-  const [appointments, setAppointments] =
-    useState<Appointment[]>(mockAppointments);
+  const {
+    appointments: apiAppointments,
+    createAppointment,
+    loadingList,
+    loadingCreate,
+    error,
+
+    counselors,
+    loadingCounselors,
+    counselorError,
+
+    ensureAllLoaded,
+  } = useAppointments();
+
+  useEffect(() => {
+    ensureAllLoaded();
+  }, [ensureAllLoaded]);
+
+  // Modal focus target
+  const firstFieldRef = useRef<HTMLButtonElement | null>(null);
 
   const [selectedCounselor, setSelectedCounselor] = useState<string | null>(
     null
   );
+  const [counselorTypeFilter, setCounselorTypeFilter] = useState<
+    "all" | string
+  >("all");
+  const [counselorOpen, setCounselorOpen] = useState(false);
+
   const [date, setDate] = useState<string>("");
   const [time, setTime] = useState<string>("");
-  const [mode, setMode] = useState<SessionMode | null>(null);
+  const [mode, setMode] = useState<UISessionMode | null>(null);
   const [location, setLocation] = useState<string>("Counseling Room 5");
   const [notes, setNotes] = useState<string>("");
   const [anonymous, setAnonymous] = useState(false);
-
-  // modal state
   const [open, setOpen] = useState(false);
-  const firstFieldRef = useRef<HTMLInputElement>(null);
 
-  const today = new Date();
-  const upcoming = appointments.filter(
-    (appt) => new Date(`${appt.date}T${appt.time}`) >= today
-  );
-  const past = appointments.filter(
-    (appt) => new Date(`${appt.date}T${appt.time}`) < today
+  // Derived data
+  const uiAppointments = useMemo<UIAppointment[]>(
+    () => apiAppointments.map(apiToUI),
+    [apiAppointments]
   );
 
+  const now = new Date();
+  const upcoming = uiAppointments.filter(
+    (appt) => new Date(`${appt.date}T${appt.time}:00`) >= now
+  );
+  const past = uiAppointments.filter(
+    (appt) => new Date(`${appt.date}T${appt.time}:00`) < now
+  );
+
+  const filteredCounselors: Counselor[] = useMemo(() => {
+    if (counselorTypeFilter === "all") return counselors;
+    return counselors.filter(
+      (c) =>
+        (c.counselor_type || "").toLowerCase() ===
+        counselorTypeFilter.toLowerCase()
+    );
+  }, [counselors, counselorTypeFilter]);
+
+  const chosen = useMemo(
+    () => counselors.find((c) => c.id === selectedCounselor),
+    [counselors, selectedCounselor]
+  );
+
+  const validWhen = !!date && !!time && isFutureDateTime(date, time);
   const canSubmit =
-    !!selectedCounselor &&
-    !!date &&
-    !!time &&
-    !!mode &&
-    (mode !== "in-person" || !!location);
+    !!chosen && validWhen && !!mode && (mode !== "in-person" || !!location);
 
   async function handleBook() {
     if (!canSubmit) return;
-    const scheduled_at = toISODateTime(date, time);
+    const scheduled_at = toISOWithOffset(date, time);
 
-    const optimistic: Appointment = {
-      id: `a${appointments.length + 1}`,
-      counselorId: selectedCounselor!,
-      date,
-      time,
-      type: mode!,
-      status: "pending",
-      isAnonymous: anonymous,
-      note: notes || undefined,
-    };
+    await createAppointment({
+      counselor_id: selectedCounselor!, // UUID/string from counselors API
+      scheduled_at,
+      mode: mode as AppointmentMode,
+      in_person_location: mode === "in-person" ? location : undefined,
+      notes: notes || undefined,
+      is_anonymous: anonymous || undefined,
+    });
 
-    setAppointments((prev) => [optimistic, ...prev]);
-
-    // Reset form & close modal
+    // reset
     setSelectedCounselor(null);
     setDate("");
     setTime("");
     setMode(null);
-    setLocation("");
+    setLocation("Counseling Room 5");
     setNotes("");
     setAnonymous(false);
     setOpen(false);
   }
+
+  function openRebook(appt: UIAppointment) {
+    // If IDs line up with currently available counselors
+    const byUi = counselors.find((c) => c.id === appt.counselorId);
+    setSelectedCounselor(byUi?.id ?? null);
+
+    setMode(appt.type);
+    setNotes(appt.note ?? "");
+    setDate("");
+    setTime("");
+    setLocation("Counseling Room 5");
+    setAnonymous(false);
+    setOpen(true);
+    setTimeout(() => firstFieldRef.current?.focus(), 0);
+  }
+
+  const counselorTypes = useMemo(() => {
+    const set = new Set(
+      counselors
+        .map((c) => (c.counselor_type || "").trim())
+        .filter(Boolean) as string[]
+    );
+    return Array.from(set);
+  }, [counselors]);
 
   return (
     <DashboardLayout title="Student Dashboard" sidebar={<StudentSidebar />}>
@@ -209,15 +293,33 @@ export default function AppointmentsPage() {
               Book, track, and join your counseling sessions
             </p>
           </div>
-
           <Button
             className="h-9 rounded-2xl shadow-sm"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              setOpen(true);
+              setTimeout(() => firstFieldRef.current?.focus(), 0);
+            }}
+            disabled={loadingCreate}
           >
             <Plus className="mr-2 h-4 w-4" /> Book Appointment
           </Button>
         </div>
 
+        {error && (
+          <div className="text-sm text-red-600 border border-red-200 bg-red-50 p-3 rounded-lg">
+            {error}
+          </div>
+        )}
+        {(loadingList || loadingCounselors) && (
+          <div className="text-sm text-muted-foreground">
+            Loading{loadingList && loadingCounselors ? "…" : ""}{" "}
+            {loadingList ? "appointments" : ""}{" "}
+            {loadingList && loadingCounselors ? "and" : ""}{" "}
+            {loadingCounselors ? "counselors" : ""}…
+          </div>
+        )}
+
+        {/* BOOKING MODAL */}
         <Modal
           open={open}
           onClose={() => setOpen(false)}
@@ -227,21 +329,106 @@ export default function AppointmentsPage() {
           footer={
             <Button
               className="w-full rounded-2xl"
-              disabled={!canSubmit}
+              disabled={!canSubmit || loadingCreate}
               onClick={handleBook}
+              title={
+                !selectedCounselor
+                  ? "Pick a counselor"
+                  : !validWhen
+                  ? "Pick a future date/time"
+                  : undefined
+              }
             >
-              Book Appointment
+              {loadingCreate ? "Booking…" : "Book Appointment"}
             </Button>
           }
         >
           <div className="grid gap-5 sm:gap-6">
+            {/* Counselor type filter */}
             <div className="grid gap-2">
-              <Label className="text-sm">Select Counselor</Label>
-              <CounselorSelect
-                counselors={mockCounselors}
-                value={selectedCounselor}
-                onChange={(id) => setSelectedCounselor(id)}
-              />
+              <Label className="text-sm">Counselor type</Label>
+              <Select
+                value={counselorTypeFilter}
+                onValueChange={(v) => setCounselorTypeFilter(v)}
+              >
+                <SelectTrigger className="h-9 rounded-md">
+                  <SelectValue placeholder="Filter by type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {counselorTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Searchable counselor select */}
+            <div className="grid gap-2">
+              <Label className="text-sm">Select counselor</Label>
+              <Popover open={counselorOpen} onOpenChange={setCounselorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    ref={firstFieldRef}
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={counselorOpen}
+                    className="w-full justify-between rounded-md h-9"
+                    disabled={loadingCounselors || counselors.length === 0}
+                  >
+                    {selectedCounselor
+                      ? counselors.find((c) => c.id === selectedCounselor)?.name
+                      : loadingCounselors
+                      ? "Loading counselors…"
+                      : counselors.length === 0
+                      ? counselorError || "No counselors available"
+                      : "Search and select counselor"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]">
+                  <Command>
+                    <CommandInput placeholder="Search counselors…" />
+                    <CommandEmpty>No counselor found.</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        {filteredCounselors.map((c) => (
+                          <CommandItem
+                            key={c.id}
+                            value={`${c.name} ${c.id} ${
+                              c.counselor_type ?? ""
+                            }`}
+                            onSelect={() => {
+                              setSelectedCounselor(c.id);
+                              setCounselorOpen(false);
+                            }}
+                            className="flex items-center gap-2"
+                          >
+                            <Check
+                              className={cn(
+                                "h-4 w-4",
+                                selectedCounselor === c.id
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            <div className="flex items-center gap-2">
+                              <span className="truncate">{c.name}</span>
+                              {c.counselor_type && (
+                                <Badge variant="outline" className="capitalize">
+                                  {c.counselor_type}
+                                </Badge>
+                              )}
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <Separator />
@@ -252,7 +439,6 @@ export default function AppointmentsPage() {
                   Date
                 </Label>
                 <Input
-                  ref={firstFieldRef}
                   id="date"
                   type="date"
                   min={new Date().toISOString().slice(0, 10)}
@@ -272,6 +458,11 @@ export default function AppointmentsPage() {
                 />
               </div>
             </div>
+            {!!date && !!time && !isFutureDateTime(date, time) && (
+              <p className="text-xs text-red-600 -mt-2">
+                Please choose a future time.
+              </p>
+            )}
 
             <div className="grid gap-3">
               <Label className="text-sm">Session Type</Label>
@@ -312,7 +503,7 @@ export default function AppointmentsPage() {
                   id="location"
                   placeholder="e.g., Counseling Office, Room 3"
                   value={location}
-                  disabled
+                  onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
             )}
@@ -345,7 +536,7 @@ export default function AppointmentsPage() {
           </div>
         </Modal>
 
-        {/* UPCOMING APPOINTMENTS */}
+        {/* UPCOMING */}
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle>Upcoming Appointments</CardTitle>
@@ -360,7 +551,7 @@ export default function AppointmentsPage() {
               </p>
             ) : (
               upcoming.map((appt) => {
-                const counselor = mockCounselors.find(
+                const counselor = counselors.find(
                   (c) => c.id === appt.counselorId
                 );
                 return (
@@ -371,11 +562,11 @@ export default function AppointmentsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar>
                         <AvatarFallback>
-                          {counselor?.name.charAt(0)}
+                          {counselor?.name?.charAt(0) ?? "?"}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{counselor?.name}</p>
+                        <p className="font-medium">{counselor?.name ?? "—"}</p>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                           <Calendar className="h-4 w-4" />
                           <span>{appt.date}</span>
@@ -386,7 +577,13 @@ export default function AppointmentsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="capitalize">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "capitalize",
+                          appt.status === "rejected" && "border-red-400"
+                        )}
+                      >
                         {appt.status}
                       </Badge>
                       {appt.type === "video" && appt.status === "confirmed" && (
@@ -415,7 +612,7 @@ export default function AppointmentsPage() {
           </CardContent>
         </Card>
 
-        {/* PAST APPOINTMENTS */}
+        {/* PAST */}
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle>Past Appointments</CardTitle>
@@ -428,7 +625,7 @@ export default function AppointmentsPage() {
               </p>
             ) : (
               past.map((appt) => {
-                const counselor = mockCounselors.find(
+                const counselor = counselors.find(
                   (c) => c.id === appt.counselorId
                 );
                 return (
@@ -439,11 +636,11 @@ export default function AppointmentsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar>
                         <AvatarFallback>
-                          {counselor?.name.charAt(0)}
+                          {counselor?.name?.charAt(0) ?? "?"}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{counselor?.name}</p>
+                        <p className="font-medium">{counselor?.name ?? "—"}</p>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                           <Calendar className="h-4 w-4" />
                           <span>{appt.date}</span>
@@ -451,20 +648,19 @@ export default function AppointmentsPage() {
                           <span>{appt.time}</span>
                           <SessionBadge mode={appt.type} />
                         </div>
-                        {appt.note && (
-                          <p className="text-xs mt-1 text-muted-foreground">
-                            Notes: {appt.note}
-                          </p>
-                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="capitalize">
+                        {appt.status}
+                      </Badge>
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="secondary"
                         className="rounded-xl"
+                        onClick={() => openRebook(appt)}
                       >
-                        Rebook
+                        <RotateCcw className="h-4 w-4 mr-1" /> Book Again
                       </Button>
                     </div>
                   </div>

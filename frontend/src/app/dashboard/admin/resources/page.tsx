@@ -1,12 +1,13 @@
+// app/admin/resources/page.tsx (your page file)
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import { AdminSidebar } from "@/components/adminSidebar/AdminSidebar";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Modal } from "@/components/Modal/modal";
 import { cn } from "@/lib/utils";
 
-/* UI */
 import {
   Card,
   CardContent,
@@ -26,18 +27,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/* Icons */
 import { Search, Pencil, Trash2, ExternalLink, Plus } from "lucide-react";
 
-/* Provider hook & types */
 import {
-  AdminResourcesProvider,
   useAdminResources,
   type Resource,
   type CreateResourceInput,
 } from "../../../../Context/AdminResourcesProvider";
 
-/* ------------------ FORM ------------------ */
+/* ------------------ FORM (unchanged) ------------------ */
 function ResourceForm({
   initial,
   onSubmit,
@@ -55,9 +53,7 @@ function ResourceForm({
   const canSubmit = title.trim().length > 0;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files?.[0]) {
-      setFile(e.target.files[0]);
-    }
+    if (e.target.files?.[0]) setFile(e.target.files[0]);
   }
 
   return (
@@ -138,9 +134,6 @@ function ResourceForm({
             title: title.trim(),
             description: description.trim() || null,
             type,
-            // NOTE: if you're using the upload endpoint, you should:
-            // 1) POST file to /admin-resources/upload (FormData)
-            // 2) get back {file_url} and pass it here.
             file_url: file ? file.name : initial.file_url ?? null,
           })
         }
@@ -151,10 +144,23 @@ function ResourceForm({
   );
 }
 
-/* ------------------ MAIN ------------------ */
+/* ------------------ PAGE ------------------ */
 function AdminResourcesInner() {
-  const { items, query, setQuery, create, update, remove } =
-    useAdminResources();
+  const {
+    items,
+    query,
+    setQuery,
+    create,
+    update,
+    remove,
+    ensureLoaded,
+    loading,
+  } = useAdminResources();
+
+  // 🚀 load once when this page mounts
+  useEffect(() => {
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
   const [openCreate, setOpenCreate] = useState(false);
   const [openEdit, setOpenEdit] = useState<Resource | null>(null);
@@ -191,100 +197,112 @@ function AdminResourcesInner() {
 
   return (
     <DashboardLayout title="Resources" sidebar={<AdminSidebar />}>
-      {/* Filters */}
-      <Card className="mb-6 rounded-2xl">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Resources</CardTitle>
-          <Button
-            onClick={() => setOpenCreate(true)}
-            size="sm"
-            className="rounded-xl"
-          >
-            <Plus className="h-4 w-4 mr-2" /> Add Resource
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Search resources..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+      <div className="space-y-6">
+        {/* Filters */}
+        <Card className="mb-6 rounded-2xl">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Resources</CardTitle>
+              <CardDescription>Manage uploaded materials</CardDescription>
+            </div>
+            <Button
+              onClick={() => setOpenCreate(true)}
+              size="sm"
               className="rounded-xl"
-            />
-            <Button variant="outline" size="icon">
-              <Search className="h-4 w-4" />
+              disabled={loading}
+            >
+              <Plus className="h-4 w-4 mr-2" /> Add Resource
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Search resources..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="rounded-xl"
+                disabled={loading}
+              />
+              <Button variant="outline" size="icon" disabled>
+                <Search className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Resource Cards */}
-      <div className="grid gap-4">
-        {filtered.length === 0 ? (
-          <p className="text-center text-muted-foreground py-6">
-            No resources found
-          </p>
-        ) : (
-          filtered.map((r) => (
-            <Card key={r.id} className="rounded-2xl hover:shadow-md transition">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <CardTitle className="text-lg">{r.title}</CardTitle>
-                  {r.description && (
-                    <CardDescription>{r.description}</CardDescription>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    className={cn(
-                      r.type === "article" && "bg-blue-100 text-blue-700",
-                      r.type === "video" && "bg-purple-100 text-purple-700",
-                      r.type === "pdf" && "bg-red-100 text-red-700",
-                      (!r.type || r.type === "other") &&
-                        "bg-gray-100 text-gray-700"
+        {/* Resource Cards */}
+        <div className="grid gap-4">
+          {loading ? (
+            <p className="text-center text-muted-foreground py-6">Loading…</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-muted-foreground py-6">
+              No resources found
+            </p>
+          ) : (
+            filtered.map((r) => (
+              <Card
+                key={r.id}
+                className="rounded-2xl hover:shadow-md transition"
+              >
+                <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">{r.title}</CardTitle>
+                    {r.description && (
+                      <CardDescription>{r.description}</CardDescription>
                     )}
-                  >
-                    {r.type ?? "Other"}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(r.created_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="flex justify-end gap-2">
-                {r.file_url && (
-                  <Button variant="ghost" size="icon" asChild>
-                    <a
-                      href={r.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={cn(
+                        r.type === "article" && "bg-blue-100 text-blue-700",
+                        r.type === "video" && "bg-purple-100 text-purple-700",
+                        r.type === "pdf" && "bg-red-100 text-red-700",
+                        (!r.type || r.type === "other") &&
+                          "bg-gray-100 text-gray-700"
+                      )}
                     >
-                      <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
-                    </a>
+                      {r.type ?? "Other"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(r.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex justify-end gap-2">
+                  {r.file_url && (
+                    <Button variant="ghost" size="icon" asChild>
+                      <a
+                        href={r.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setOpenEdit(r)}
+                  >
+                    <Pencil className="h-4 w-4 text-muted-foreground hover:text-blue-600" />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOpenEdit(r)}
-                >
-                  <Pencil className="h-4 w-4 text-muted-foreground hover:text-blue-600" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOpenDelete(r)}
-                >
-                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-red-600" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))
-        )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setOpenDelete(r)}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-red-600" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Modals */}
@@ -300,7 +318,6 @@ function AdminResourcesInner() {
         />
       </Modal>
 
-      {/* Edit */}
       <Modal
         open={!!openEdit}
         onClose={() => setOpenEdit(null)}
@@ -315,7 +332,6 @@ function AdminResourcesInner() {
         )}
       </Modal>
 
-      {/* Delete */}
       <Modal
         open={!!openDelete}
         onClose={() => setOpenDelete(null)}

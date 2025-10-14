@@ -4,13 +4,13 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
+  useRef,
   useState,
   PropsWithChildren,
 } from "react";
 import type { AxiosInstance } from "axios";
-import axios from "axios"; // <-- needed for doRefresh absolute call
+import axios from "axios";
 import { createApiClient } from "@/lib/http/createApiClient";
 
 /* ========= Types ========= */
@@ -71,7 +71,11 @@ type AdminContextValue = {
     setTypeFilter: (t: TypeFilter) => void;
     setStatusFilter: (s: StatusFilter) => void;
 
+    /** Manually (re)load the list */
     refetch: () => Promise<void>;
+    /** Lazy one-time loader; no-op if already loaded */
+    ensureLoaded: () => Promise<void>;
+
     create: (payload: CreateCounselorInput) => Promise<Counselor | null>;
     update: (
       id: string,
@@ -209,15 +213,17 @@ export function AdminProvider({ children }: ProviderProps) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
+  // lazy-load control
+  const initializedRef = useRef(false);
+  const inflightRef = useRef<Promise<void> | null>(null);
+
   const refetch = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
     try {
-      setLoading(true);
-      setError(undefined);
-
       const { data } = await api.get<ListEnvelope>(
-        "/admin-counselor/counselors"
+        "/admin/counselor/counselors"
       );
-
       const list = Array.isArray(data) ? data : data?.items ?? [];
       setItems(mapToCounselors(list));
     } catch (e) {
@@ -227,8 +233,21 @@ export function AdminProvider({ children }: ProviderProps) {
     }
   }, [api]);
 
-  useEffect(() => {
-    refetch();
+  /** Only loads once per app lifetime (until reload); safe to call from pages on demand */
+  const ensureLoaded = useCallback(async () => {
+    if (initializedRef.current) return;
+    if (inflightRef.current) return inflightRef.current;
+
+    inflightRef.current = (async () => {
+      try {
+        await refetch();
+      } finally {
+        initializedRef.current = true;
+        inflightRef.current = null;
+      }
+    })();
+
+    return inflightRef.current;
   }, [refetch]);
 
   const create = useCallback(
@@ -238,7 +257,7 @@ export function AdminProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.post<{ counselor: ListItem }>(
-          "/admin-counselor/counselors",
+          "/admin/counselor/counselors",
           payload
         );
 
@@ -262,7 +281,7 @@ export function AdminProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.patch<{ counselor: ListItem }>(
-          `/admin-counselor/counselors/${id}`,
+          `/admin/counselor/counselors/${id}`,
           payload
         );
 
@@ -281,16 +300,18 @@ export function AdminProvider({ children }: ProviderProps) {
 
   const toggleActive = useCallback(
     async (id: string, is_active: boolean) => {
+      // optimistic
       setItems((prev) =>
         prev.map((r) => (r.id === id ? { ...r, is_active } : r))
       );
       try {
         setError(undefined);
-        await api.patch(`/admin-counselor/counselors/${id}/active`, {
+        await api.patch(`/admin/counselor/counselors/${id}/active`, {
           is_active,
         });
         return true;
       } catch (e) {
+        // rollback
         setItems((prev) =>
           prev.map((r) => (r.id === id ? { ...r, is_active: !is_active } : r))
         );
@@ -305,7 +326,7 @@ export function AdminProvider({ children }: ProviderProps) {
     async (id: string) => {
       try {
         setError(undefined);
-        await api.delete(`/admin-counselor/counselors/${id}`);
+        await api.delete(`/admin/counselor/counselors/${id}`);
         setItems((prev) => prev.filter((r) => r.id !== id));
         return true;
       } catch (e) {
@@ -331,6 +352,8 @@ export function AdminProvider({ children }: ProviderProps) {
       setStatusFilter,
 
       refetch,
+      ensureLoaded,
+
       create,
       update,
       toggleActive,
@@ -347,6 +370,7 @@ export function AdminProvider({ children }: ProviderProps) {
       setTypeFilter,
       setStatusFilter,
       refetch,
+      ensureLoaded,
       create,
       update,
       toggleActive,

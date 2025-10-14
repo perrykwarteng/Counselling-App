@@ -1,8 +1,7 @@
+// app/(dashboard)/counselor/referrals/page.tsx  (or wherever your page lives)
 "use client";
 
-import { useState, useEffect } from "react";
-// import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
   Card,
@@ -36,20 +35,47 @@ import {
   XCircle,
   Clock,
   Send,
-  FileText,
   User,
   ArrowRight,
 } from "lucide-react";
+
 import { CounselorSidebar } from "@/components/counselorSidebar/CounselorSidebar";
-// import { mockReferrals, mockCounselors, mockStudents } from '@/lib/mock-data';
-// import { Referral } from '@/types';
 
-export default function CounselorReferralsPage() {
-  // const { user, loading } = useAuth();
-  const router = useRouter();
-  // const [referrals, setReferrals] = useState<Referral[]>(mockReferrals);
+// ✅ contexts
+import {
+  AdminReferralProvider,
+  useAdminReferrals,
+} from "@/Context/AdminReferralsProvider";
+import {
+  AppointmentProvider,
+  useAppointments,
+} from "@/Context/AppointmentProviders";
+
+/* =========================
+   Internal page that uses both contexts
+   ========================= */
+function CounselorReferralsInner() {
+  // ---- referral data/actions (students, latest assignments, unassigned, refer(...))
+  const {
+    items,
+    unassigned,
+    loading,
+    error,
+    query,
+    setQuery,
+    refetch,
+    ensureLoaded, // referrals lazy-load
+    refer,
+  } = useAdminReferrals();
+
+  // ---- counselors come from AppointmentProvider
+  const {
+    counselors: apptCounselors,
+    loadingCounselors,
+    ensureCounselorsLoaded, // counselors lazy-load
+  } = useAppointments();
+
   const [showCreateReferral, setShowCreateReferral] = useState(false);
-
   const [newReferral, setNewReferral] = useState({
     toCounselorId: "",
     studentId: "",
@@ -57,57 +83,11 @@ export default function CounselorReferralsPage() {
     notes: "",
   });
 
-  // useEffect(() => {
-  //   if (!loading && (!user || user.role !== 'counselor')) {
-  //     router.push('/');
-  //   }
-  // }, [user, loading, router]);
-
-  // if (loading || !user) {
-  //   return <div>Loading...</div>;
-  // }
-
-  // Filter referrals for this counselor
-  // const sentReferrals = referrals.filter(ref => ref.fromCounselorId === user.id);
-  // const receivedReferrals = referrals.filter(ref => ref.toCounselorId === user.id);
-
-  // const handleCreateReferral = () => {
-  //   const referral: Referral = {
-  //     id: Math.random().toString(36).substr(2, 9),
-  //     fromCounselorId: user.id,
-  //     toCounselorId: newReferral.toCounselorId,
-  //     studentId: newReferral.studentId,
-  //     reason: newReferral.reason,
-  //     status: 'pending',
-  //     createdAt: new Date(),
-  //     notes: newReferral.notes
-  //   };
-
-  //   setReferrals(prev => [referral, ...prev]);
-  //   setNewReferral({
-  //     toCounselorId: '',
-  //     studentId: '',
-  //     reason: '',
-  //     notes: ''
-  //   });
-  //   setShowCreateReferral(false);
-  // };
-
-  // const handleRespondToReferral = (referralId: string, status: 'accepted' | 'declined') => {
-  //   setReferrals(prev => prev.map(ref =>
-  //     ref.id === referralId ? { ...ref, status } : ref
-  //   ));
-  // };
-
-  // const getCounselorName = (counselorId: string) => {
-  //   const counselor = mockCounselors.find(c => c.id === counselorId);
-  //   return counselor ? `${counselor.firstName} ${counselor.lastName}` : 'Unknown Counselor';
-  // };
-
-  // const getStudentName = (studentId: string) => {
-  //   const student = mockStudents.find(s => s.id === studentId);
-  //   return student ? `${student.firstName} ${student.lastName}` : 'Unknown Student';
-  // };
+  // Load both datasets once
+  useEffect(() => {
+    ensureLoaded();
+    ensureCounselorsLoaded();
+  }, [ensureLoaded, ensureCounselorsLoaded]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -121,7 +101,6 @@ export default function CounselorReferralsPage() {
         return <Clock className="h-4 w-4 text-gray-500" />;
     }
   };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "pending":
@@ -135,19 +114,68 @@ export default function CounselorReferralsPage() {
     }
   };
 
-  // const pendingReceived = receivedReferrals.filter(ref => ref.status === 'pending');
+  // ---- student dropdown: unique from latest assignments + unassigned
+  const studentOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    for (const row of items) {
+      const s = row.student;
+      if (s?._id && !map.has(s._id)) {
+        map.set(s._id, { id: s._id, name: s.name || s.email || "Unknown" });
+      }
+    }
+    for (const s of unassigned) {
+      if (s?._id && !map.has(s._id)) {
+        map.set(s._id, {
+          id: s._id as string,
+          name: s.name || s.email || "Unknown",
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [items, unassigned]);
+
+  // ---- counselor dropdown: from AppointmentProvider.counselors
+  const counselorOptions = useMemo(() => {
+    return (apptCounselors || [])
+      .map((c) => ({ id: String(c.id), name: c.name || "Unknown" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [apptCounselors]);
+
+  // submit referral
+  const onCreateReferral = async () => {
+    const { studentId, toCounselorId, reason } = newReferral;
+    if (!studentId || !toCounselorId || !reason) return;
+    const ok = await refer(studentId, toCounselorId, reason);
+    if (ok) {
+      setNewReferral({
+        toCounselorId: "",
+        studentId: "",
+        reason: "",
+        notes: "",
+      });
+      setShowCreateReferral(false);
+    }
+  };
+
+  // simple stats
+  const totalLatestAssignments = items.length;
+  const totalUnassigned = unassigned.length;
+  const totalCounselors = apptCounselors.length;
 
   return (
     <DashboardLayout title="Student Referrals" sidebar={<CounselorSidebar />}>
       <div className="space-y-6">
-        {/* Header with Create Button */}
+        {/* Header + create dialog */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold">Student Referrals</h2>
             <p className="text-muted-foreground">
-              Refer students to other counselors or manage incoming referrals
+              Refer students to other counselors or review latest assignments
             </p>
           </div>
+
           <Dialog
             open={showCreateReferral}
             onOpenChange={setShowCreateReferral}
@@ -163,13 +191,14 @@ export default function CounselorReferralsPage() {
                 <DialogTitle>Refer Student to Another Counselor</DialogTitle>
                 <DialogDescription>
                   Transfer a student to a counselor with more appropriate
-                  expertise
+                  expertise.
                 </DialogDescription>
               </DialogHeader>
+
               <div className="space-y-6 mt-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label>Student to Refer</Label>
+                    <Label>Student</Label>
                     <Select
                       value={newReferral.studentId}
                       onValueChange={(value) =>
@@ -183,11 +212,11 @@ export default function CounselorReferralsPage() {
                         <SelectValue placeholder="Select student" />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* {mockStudents.map((student) => (
-                          <SelectItem key={student.id} value={student.id}>
-                            {student.firstName} {student.lastName}
+                        {studentOptions.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
                           </SelectItem>
-                        ))} */}
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -204,14 +233,20 @@ export default function CounselorReferralsPage() {
                       }
                     >
                       <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select counselor" />
+                        <SelectValue
+                          placeholder={
+                            loadingCounselors
+                              ? "Loading..."
+                              : "Select counselor"
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* {mockCounselors.filter(c => c.id !== user.id).map((counselor) => (
-                          <SelectItem key={counselor.id} value={counselor.id}>
-                            {counselor.firstName} {counselor.lastName} ({counselor.type})
+                        {counselorOptions.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
                           </SelectItem>
-                        ))} */}
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -220,7 +255,7 @@ export default function CounselorReferralsPage() {
                 <div>
                   <Label>Reason for Referral</Label>
                   <Textarea
-                    placeholder="Explain why this student would benefit from working with another counselor..."
+                    placeholder="Explain why this student should be reassigned..."
                     value={newReferral.reason}
                     onChange={(e) =>
                       setNewReferral((prev) => ({
@@ -233,9 +268,9 @@ export default function CounselorReferralsPage() {
                 </div>
 
                 <div>
-                  <Label>Additional Information</Label>
+                  <Label>Additional Information (optional)</Label>
                   <Textarea
-                    placeholder="Any additional context, session notes, or recommendations for the receiving counselor..."
+                    placeholder="Any context for the receiving counselor..."
                     value={newReferral.notes}
                     onChange={(e) =>
                       setNewReferral((prev) => ({
@@ -255,14 +290,16 @@ export default function CounselorReferralsPage() {
                     Cancel
                   </Button>
                   <Button
+                    onClick={onCreateReferral}
                     disabled={
                       !newReferral.toCounselorId ||
                       !newReferral.studentId ||
-                      !newReferral.reason
+                      !newReferral.reason ||
+                      loading
                     }
                   >
                     <Send className="h-4 w-4 mr-2" />
-                    Send Referral
+                    {loading ? "Sending..." : "Send Referral"}
                   </Button>
                 </div>
               </div>
@@ -270,19 +307,36 @@ export default function CounselorReferralsPage() {
           </Dialog>
         </div>
 
+        {/* Search */}
+        <div className="flex items-center gap-3">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search student, counselor, email, department..."
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+          <Button
+            variant="outline"
+            onClick={() => refetch()}
+            disabled={loading}
+          >
+            Refresh
+          </Button>
+        </div>
+
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Pending Received
+                Latest Assignments
               </CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Send className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              {/* <div className="text-2xl font-bold">{pendingReceived.length}</div> */}
+              <div className="text-2xl font-bold">{totalLatestAssignments}</div>
               <p className="text-xs text-muted-foreground">
-                Need your response
+                Students with a current counselor
               </p>
             </CardContent>
           </Card>
@@ -290,234 +344,171 @@ export default function CounselorReferralsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Sent Referrals
-              </CardTitle>
-              <Send className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              {/* <div className="text-2xl font-bold">{sentReferrals.length}</div> */}
-              <p className="text-xs text-muted-foreground">Total sent</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Received Referrals
+                Unassigned Students
               </CardTitle>
               <UserPlus className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              {/* <div className="text-2xl font-bold">{receivedReferrals.length}</div> */}
-              <p className="text-xs text-muted-foreground">Total received</p>
+              <div className="text-2xl font-bold">{totalUnassigned}</div>
+              <p className="text-xs text-muted-foreground">
+                Available to assign
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Accepted</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CardTitle className="text-sm font-medium">Counselors</CardTitle>
+              <User className="h-4 w-4 text-violet-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {/* {receivedReferrals.filter(ref => ref.status === 'accepted').length} */}
-              </div>
-              <p className="text-xs text-muted-foreground">New students</p>
+              <div className="text-2xl font-bold">{totalCounselors}</div>
+              <p className="text-xs text-muted-foreground">Active counselors</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Pending Received Referrals */}
-        {/* {pendingReceived.length > 0 && (
-          <Card className="border-yellow-200 bg-yellow-50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-yellow-800">
-                <Clock className="h-5 w-5" />
-                Pending Referrals ({pendingReceived.length})
-              </CardTitle>
-              <CardDescription className="text-yellow-700">
-                New student referrals requiring your response
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {pendingReceived.map((referral) => (
-                <div key={referral.id} className="bg-white border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(referral.status)}
-                        <Badge variant="secondary">
-                          New Referral
-                        </Badge>
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        Received {referral.createdAt.toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => handleRespondToReferral(referral.id, 'declined')}
-                      >
-                        <XCircle className="h-4 w-4 mr-1" />
-                        Decline
-                      </Button>
-                      <Button 
-                        size="sm"
-                        onClick={() => handleRespondToReferral(referral.id, 'accepted')}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        Accept
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">FROM COUNSELOR</Label>
-                      <p className="font-medium">{getCounselorName(referral.fromCounselorId)}</p>
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">STUDENT</Label>
-                      <p className="font-medium">{getStudentName(referral.studentId)}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">REASON FOR REFERRAL</Label>
-                      <p className="text-sm">{referral.reason}</p>
-                    </div>
-                    {referral.notes && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">ADDITIONAL NOTES</Label>
-                        <p className="text-sm">{referral.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )} */}
-
+        {/* Latest assignments */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Sent Referrals */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Send className="h-5 w-5" />
-                Sent Referrals
+                Latest Assignments
               </CardTitle>
               <CardDescription>
-                Students you've referred to other counselors
+                Each student’s most recent counselor assignment
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* {sentReferrals.length === 0 ? (
+              {items.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <UserPlus className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <h3 className="font-medium mb-2">No referrals sent</h3>
-                  <p className="text-sm mb-4">You haven't referred any students yet</p>
-                  <Button size="sm" onClick={() => setShowCreateReferral(true)}>
-                    Refer a Student
-                  </Button>
+                  <h3 className="font-medium mb-2">No assignments yet</h3>
+                  <p className="text-sm">Use “Refer Student” to assign one.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {sentReferrals.map((referral) => (
-                    <div key={referral.id} className="border rounded-lg p-4">
+                  {items.map((row, idx) => (
+                    <div
+                      key={`${row.student?._id ?? idx}-${row.created_at}`}
+                      className="border rounded-lg p-4"
+                    >
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          {getStatusIcon(referral.status)}
-                          <Badge variant={getStatusColor(referral.status) as any}>
-                            {referral.status}
+                          {getStatusIcon("pending")}
+                          <Badge variant={getStatusColor("pending") as any}>
+                            latest
                           </Badge>
                         </div>
                         <span className="text-sm text-muted-foreground">
-                          {referral.createdAt.toLocaleDateString()}
+                          {new Date(row.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      
+
                       <div className="flex items-center gap-2 mb-2">
                         <User className="h-4 w-4 text-muted-foreground" />
                         <span className="font-medium text-sm">
-                          {getStudentName(referral.studentId)}
+                          {row.student?.name ||
+                            row.student?.email ||
+                            "Unknown student"}
                         </span>
                         <ArrowRight className="h-3 w-3 text-muted-foreground" />
                         <span className="text-sm">
-                          {getCounselorName(referral.toCounselorId)}
+                          {row.counselor?.name ||
+                            row.counselor?.email ||
+                            "Unknown counselor"}
                         </span>
                       </div>
-                      
-                      <p className="text-sm text-muted-foreground truncate">
-                        {referral.reason}
-                      </p>
+
+                      {row.reason && (
+                        <p className="text-sm text-muted-foreground truncate">
+                          {row.reason}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
-              )} */}
+              )}
             </CardContent>
           </Card>
 
-          {/* Received Referrals */}
+          {/* Unassigned students */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5" />
-                Received Referrals
+                Unassigned Students
               </CardTitle>
               <CardDescription>
-                Students referred to you by other counselors
+                Students currently not assigned to any counselor
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* {receivedReferrals.length === 0 ? (
+              {unassigned.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <UserPlus className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <h3 className="font-medium mb-2">No referrals received</h3>
-                  <p className="text-sm">Other counselors haven't referred students to you yet</p>
+                  <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <h3 className="font-medium mb-2">No unassigned students</h3>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {receivedReferrals.map((referral) => (
-                    <div key={referral.id} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(referral.status)}
-                          <Badge variant={getStatusColor(referral.status) as any}>
-                            {referral.status}
-                          </Badge>
+                <div className="space-y-3">
+                  {unassigned.map((s) => (
+                    <div
+                      key={s._id}
+                      className="flex items-center justify-between border rounded-lg p-3"
+                    >
+                      <div>
+                        <div className="font-medium text-sm">
+                          {s.name || s.email}
                         </div>
-                        <span className="text-sm text-muted-foreground">
-                          {referral.createdAt.toLocaleDateString()}
-                        </span>
+                        <div className="text-xs text-muted-foreground">
+                          {s.profile?.department
+                            ? `Dept: ${s.profile.department}`
+                            : ""}
+                          {s.profile?.level ? ` • ${s.profile.level}` : ""}
+                        </div>
                       </div>
-                      
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm">From </span>
-                        <span className="font-medium text-sm">
-                          {getCounselorName(referral.fromCounselorId)}
-                        </span>
-                        <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium text-sm">
-                          {getStudentName(referral.studentId)}
-                        </span>
-                      </div>
-                      
-                      <p className="text-sm text-muted-foreground truncate">
-                        {referral.reason}
-                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setShowCreateReferral(true);
+                          setNewReferral((prev) => ({
+                            ...prev,
+                            studentId: s._id as string,
+                          }));
+                        }}
+                      >
+                        Refer
+                      </Button>
                     </div>
                   ))}
                 </div>
-              )} */}
+              )}
             </CardContent>
           </Card>
         </div>
+
+        {/* Error banner */}
+        {error && (
+          <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
       </div>
     </DashboardLayout>
+  );
+}
+
+/* =========================
+   Exported page with BOTH providers
+   ========================= */
+export default function CounselorReferralsPage() {
+  return (
+    <AppointmentProvider>
+      <AdminReferralProvider>
+        <CounselorReferralsInner />
+      </AdminReferralProvider>
+    </AppointmentProvider>
   );
 }

@@ -37,13 +37,16 @@ import {
   FileText,
   AlertCircle,
   RotateCw,
+  TrendingUp,
+  Users,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/adminSidebar/AdminSidebar";
 import { toast } from "sonner";
 
-// ✅ use the new hook that returns the referrals object directly
+// hook from provider
 import { useAdminReferrals } from "@/Context/AdminReferralsProvider";
 
+/* ---------- Local tiny helpers ---------- */
 type Role = "student" | "counselor" | "admin";
 type CounselorType = "academic" | "professional" | null;
 
@@ -75,10 +78,91 @@ type CounselorLoadRow = {
   counselor: IUser | null;
 };
 
+const initials = (n?: string) =>
+  (n || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+
+const fmtDateTime = (iso?: string) => {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
+};
+
+/* ---------- Stat card + progress ---------- */
+function StatCard({
+  title,
+  icon,
+  value,
+  hint,
+  loading = false,
+  accent = "default",
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  value: React.ReactNode;
+  hint?: string;
+  loading?: boolean;
+  accent?: "default" | "green" | "blue" | "indigo" | "amber";
+  children?: React.ReactNode;
+}) {
+  const accentMap: Record<string, string> = {
+    default: "",
+    green: "text-green-600",
+    blue: "text-blue-600",
+    indigo: "text-indigo-600",
+    amber: "text-amber-600",
+  };
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          {icon}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="h-8 w-20 rounded-md bg-muted animate-pulse" />
+        ) : (
+          <div className={`text-2xl font-bold ${accentMap[accent]}`}>
+            {value}
+          </div>
+        )}
+        {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniProgress({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div className="mt-3">
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full bg-primary"
+          style={{ width: `${clamped}%`, transition: "width .3s ease" }}
+        />
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground">{clamped}%</div>
+    </div>
+  );
+}
+
 export default function AdminReferralsPage() {
   const router = useRouter();
 
-  // ⬇️ match the provider API: items = filtered latest-per-student rows
   const {
     items: assignedRows,
     counselors: counselorLoads,
@@ -87,7 +171,13 @@ export default function AdminReferralsPage() {
     error,
     refetch,
     refer,
+    ensureLoaded, // 👈 idempotent, only loads when this page mounts
   } = useAdminReferrals();
+
+  // 🔁 load on page mount only
+  useEffect(() => {
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
   // Dialog + form state
   const [showCreateReferral, setShowCreateReferral] = useState(false);
@@ -96,15 +186,7 @@ export default function AdminReferralsPage() {
   const [studentId, setStudentId] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
-
-  const initials = (n?: string) =>
-    (n || "")
-      .split(" ")
-      .filter(Boolean)
-      .map((p) => p[0])
-      .join("")
-      .slice(0, 3)
-      .toUpperCase();
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   // Student options = union of assigned + unassigned
   const allStudentsForSelect = useMemo(() => {
@@ -141,6 +223,7 @@ export default function AdminReferralsPage() {
     const t = toast.loading("Refreshing...");
     try {
       await refetch();
+      setLastUpdated(new Date().toISOString());
       toast.success("List refreshed", { id: t });
     } catch {
       toast.error("Failed to refresh", { id: t });
@@ -163,6 +246,7 @@ export default function AdminReferralsPage() {
       setReason("");
       setNotes("");
       setShowCreateReferral(false);
+      setLastUpdated(new Date().toISOString());
     } catch (e: any) {
       toast.error(e?.message || "Failed to create referral", { id: t });
     } finally {
@@ -170,9 +254,37 @@ export default function AdminReferralsPage() {
     }
   }
 
+  /* ---------- Derived stats for the cards ---------- */
   const totalAssigned = assignedRows?.length ?? 0;
   const totalUnassigned = unassigned?.length ?? 0;
   const totalCounselors = counselorLoads?.length ?? 0;
+  const totalStudents = totalAssigned + totalUnassigned;
+
+  const assignmentRate = totalStudents
+    ? (totalAssigned / totalStudents) * 100
+    : 0;
+
+  const busiest = useMemo(() => {
+    if (!counselorLoads || counselorLoads.length === 0) return null;
+    return counselorLoads.reduce((a, b) =>
+      (a?.total_assigned ?? 0) >= (b?.total_assigned ?? 0) ? a : b
+    );
+  }, [counselorLoads]);
+
+  const averageLoad = useMemo(() => {
+    if (!counselorLoads || counselorLoads.length === 0) return 0;
+    const sum = counselorLoads.reduce(
+      (acc, r) => acc + (r.total_assigned || 0),
+      0
+    );
+    return Math.round((sum / counselorLoads.length) * 10) / 10;
+  }, [counselorLoads]);
+
+  useEffect(() => {
+    if (!lastUpdated && (totalAssigned || totalUnassigned || totalCounselors)) {
+      setLastUpdated(new Date().toISOString());
+    }
+  }, [lastUpdated, totalAssigned, totalUnassigned, totalCounselors]);
 
   return (
     <DashboardLayout title="Admin Dashboard" sidebar={<AdminSidebar />}>
@@ -184,6 +296,16 @@ export default function AdminReferralsPage() {
             <p className="text-muted-foreground">
               Manage counselor assignments and create new referrals
             </p>
+            {error ? (
+              <div className="mt-2 text-xs text-red-600 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                {error}
+              </div>
+            ) : lastUpdated ? (
+              <div className="mt-2 text-xs text-muted-foreground">
+                Last updated: {fmtDateTime(lastUpdated)}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2">
@@ -203,7 +325,7 @@ export default function AdminReferralsPage() {
               onOpenChange={setShowCreateReferral}
             >
               <DialogTrigger asChild>
-                <Button>
+                <Button disabled={busy}>
                   <UserPlus className="h-4 w-4 mr-2" />
                   Create Referral
                 </Button>
@@ -315,50 +437,75 @@ export default function AdminReferralsPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Assigned Students
-              </CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalAssigned}</div>
-              <p className="text-xs text-muted-foreground">
-                Latest assignment per student
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Unassigned Students
-              </CardTitle>
-              <User className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalUnassigned}</div>
-              <p className="text-xs text-muted-foreground">No referrals yet</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Active Counselors
-              </CardTitle>
-              <UserPlus className="h-4 w-4 text-indigo-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalCounselors}</div>
-              <p className="text-xs text-muted-foreground">
-                Receiving current assignments
-              </p>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <StatCard
+            title="Assigned Students"
+            icon={<CheckCircle className="h-4 w-4 text-green-600" />}
+            value={totalAssigned}
+            hint="Latest assignment per student"
+            loading={loading}
+            accent="green"
+          />
+          <StatCard
+            title="Unassigned Students"
+            icon={<User className="h-4 w-4 text-blue-600" />}
+            value={totalUnassigned}
+            hint="No referrals yet"
+            loading={loading}
+            accent="blue"
+          />
+          <StatCard
+            title="Active Counselors"
+            icon={<Users className="h-4 w-4 text-indigo-600" />}
+            value={totalCounselors}
+            hint={`Avg. load: ${averageLoad || 0} students`}
+            loading={loading}
+            accent="indigo"
+          />
+          <StatCard
+            title="Assignment Rate"
+            icon={<TrendingUp className="h-4 w-4 text-amber-600" />}
+            value={`${Math.round(assignmentRate)}%`}
+            hint={`${totalAssigned}/${totalStudents || 0} students assigned`}
+            loading={loading}
+            accent="amber"
+          >
+            {!loading && <MiniProgress value={assignmentRate} />}
+          </StatCard>
         </div>
+
+        {/* Busiest counselor callout (optional) */}
+        {busiest?.counselor && (
+          <Card className="border-amber-200 bg-amber-50/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Busiest Counselor</CardTitle>
+              <CardDescription>
+                Balance load by assigning to others when possible.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-3">
+              <Avatar>
+                <AvatarFallback>
+                  {initials(busiest.counselor.name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <div className="font-medium">{busiest.counselor.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {busiest.counselor.email || "—"}
+                </div>
+                <div className="text-xs mt-1">
+                  <Badge variant="secondary" className="mr-2">
+                    {busiest.counselor.counselor_type || "unspecified"}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    {busiest.total_assigned} assigned
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Current Assignments */}
         <Card>
@@ -373,9 +520,21 @@ export default function AdminReferralsPage() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <AlertCircle className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                Loading…
+              <div className="grid gap-3">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="border rounded-lg p-4">
+                    <div className="h-4 w-32 bg-muted animate-pulse mb-3 rounded" />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {[...Array(3)].map((__, j) => (
+                        <div key={j} className="space-y-2">
+                          <div className="h-4 w-40 bg-muted animate-pulse rounded" />
+                          <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                          <div className="h-4 w-56 bg-muted animate-pulse rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (assignedRows?.length ?? 0) === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
@@ -402,7 +561,7 @@ export default function AdminReferralsPage() {
                         <div className="flex items-center gap-3">
                           <Badge variant="secondary">Current</Badge>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(row.created_at).toLocaleString()}
+                            {fmtDateTime(row.created_at)}
                           </span>
                         </div>
                       </div>

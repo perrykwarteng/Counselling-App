@@ -4,9 +4,9 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
+  useRef,
   PropsWithChildren,
 } from "react";
 import { toast } from "sonner";
@@ -90,6 +90,8 @@ type AdminReferralContextValue = {
 
     // actions
     refetch: () => Promise<void>;
+    ensureLoaded: () => Promise<void>;
+
     refer: (
       studentId: string,
       counselorId: string,
@@ -107,7 +109,7 @@ function normalizeText(v: unknown) {
   return (String(v ?? "") || "").toLowerCase();
 }
 
-/* ========= Local API hook (mirrors your other provider) ========= */
+/* ========= Local API hook ========= */
 const ACCESS_KEY = "auth_access_token";
 const REFRESH_KEY = "auth_refresh_token";
 
@@ -205,6 +207,10 @@ export function AdminReferralProvider({ children }: ProviderProps) {
   const [counselorFilter, setCounselorFilter] =
     useState<CounselorFilter>("all");
 
+  // lazy-load guards
+  const initializedRef = useRef(false);
+  const inflightRef = useRef<Promise<void> | null>(null);
+
   const refetch = useCallback(async () => {
     const t = toast.loading("Loading referrals...");
     try {
@@ -212,9 +218,9 @@ export function AdminReferralProvider({ children }: ProviderProps) {
       setError(undefined);
 
       const [s, c, u] = await Promise.all([
-        api.get("/admin-referrals/students"),
-        api.get("/admin-referrals/counselors"),
-        api.get("/admin-referrals/unassigned-students"),
+        api.get("/admin/referrals/students"),
+        api.get("/admin/referrals/counselors"),
+        api.get("/admin/referrals/unassigned-students"),
       ]);
 
       setAssigned(s.data?.items ?? []);
@@ -234,15 +240,27 @@ export function AdminReferralProvider({ children }: ProviderProps) {
     }
   }, [api]);
 
-  useEffect(() => {
-    refetch();
+  const ensureLoaded = useCallback(async () => {
+    if (initializedRef.current) return;
+    if (inflightRef.current) return inflightRef.current;
+
+    inflightRef.current = (async () => {
+      try {
+        await refetch();
+      } finally {
+        initializedRef.current = true;
+        inflightRef.current = null;
+      }
+    })();
+
+    return inflightRef.current;
   }, [refetch]);
 
   const refer = useCallback(
     async (studentId: string, counselorId: string, reason?: string) => {
       const t = toast.loading("Creating referral...");
       try {
-        const { data } = await api.post("/admin-referrals/refer-student", {
+        const { data } = await api.post("/admin/referrals/refer-student", {
           student_id: studentId,
           counselor_id: counselorId,
           reason,
@@ -271,7 +289,7 @@ export function AdminReferralProvider({ children }: ProviderProps) {
     async (studentId: string): Promise<ReferralHistoryRow[]> => {
       try {
         const res = await api.get(
-          `/admin-referrals/referral-history/${studentId}`
+          `/admin/referrals/referral-history/${studentId}`
         );
         return res.data?.items ?? [];
       } catch (e: any) {
@@ -347,6 +365,8 @@ export function AdminReferralProvider({ children }: ProviderProps) {
         setCounselorFilter,
 
         refetch,
+        ensureLoaded, // 👈 expose lazy loader
+
         refer,
         history,
       },
@@ -363,6 +383,7 @@ export function AdminReferralProvider({ children }: ProviderProps) {
       deptFilter,
       counselorFilter,
       refetch,
+      ensureLoaded,
       refer,
       history,
     ]

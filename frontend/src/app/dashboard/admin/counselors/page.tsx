@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 
 import { AdminSidebar } from "@/components/adminSidebar/AdminSidebar";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -41,7 +41,7 @@ import { Search, Pencil, Trash2, UserPlus2 } from "lucide-react";
 import {
   useAdminCounselors,
   type Counselor,
-} from "../../../../Context/AdminCounselorProvider";
+} from "@/Context/AdminCounselorProvider";
 
 import { Toaster, toast } from "sonner";
 
@@ -180,7 +180,7 @@ function CounselorForm({
   );
 }
 
-export default function Counselors() {
+export default function CounselorsPage() {
   const {
     items,
     loading,
@@ -195,7 +195,14 @@ export default function Counselors() {
     update,
     toggleActive,
     remove,
+    // lazy loader from provider (we'll call it when page mounts)
+    ensureLoaded,
   } = useAdminCounselors();
+
+  // ✅ Load as soon as this page mounts
+  useEffect(() => {
+    void ensureLoaded(); // guarded in provider; runs once per app lifetime
+  }, [ensureLoaded]);
 
   const [openCreate, setOpenCreate] = useState(false);
   const [openEdit, setOpenEdit] = useState<null | (typeof items)[number]>(null);
@@ -302,7 +309,6 @@ export default function Counselors() {
       return matchesQuery && matchesType && matchesStatus;
     });
   }, [items, query, typeFilter, statusFilter]);
-
 
   async function handleCreate(data: FormPayload) {
     try {
@@ -439,10 +445,16 @@ export default function Counselors() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredItems.length === 0 ? (
+                    {loading && items.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="h-24 text-center">
-                          {loading ? "Loading..." : "No counselors found."}
+                          Loading...
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredItems.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          No counselors found.
                           {error ? (
                             <div className="mt-1 text-xs text-red-500">
                               {error}

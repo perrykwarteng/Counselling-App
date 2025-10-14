@@ -33,8 +33,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { StudentSidebar } from "@/components/studentSidebar/StudentSidebar";
+import { CounselorSidebar } from "@/components/counselorSidebar/CounselorSidebar";
 
+// ---------------- Helpers ----------------
 function initialsFromName(name?: string) {
   if (!name) return "U";
   const parts = name.trim().split(/\s+/);
@@ -43,7 +44,8 @@ function initialsFromName(name?: string) {
   return `${first}${second}`.toUpperCase() || (first || "U").toUpperCase();
 }
 
-export default function ProfilePage() {
+// ---------------- Component ----------------
+export default function CounselorProfilePage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const {
@@ -57,29 +59,30 @@ export default function ProfilePage() {
     deleting,
   } = useProfile();
 
+  // Redirect if not logged in
   useEffect(() => {
-    if (!authLoading && !user) router.replace("/auth/login");
+    if (!authLoading && !user) {
+      router.replace("/auth/login");
+    }
   }, [authLoading, user, router]);
 
+  // Load profile data
   useEffect(() => {
     if (user && ensureLoaded) void ensureLoaded();
   }, [user, ensureLoaded]);
 
-  const initials = useMemo(
-    () => initialsFromName(me?.name || user?.name),
-    [me?.name, user?.name]
-  );
-
-  const [name, setName] = useState(me?.name ?? user?.name ?? "");
-  const [phone, setPhone] = useState(me?.phone ?? user?.phone ?? "");
-  const [anon, setAnon] = useState<boolean>(
-    !!(me?.is_anonymous ?? user?.is_anonymous)
-  );
+  // Profile states (all as string to avoid type mismatch)
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [specialization, setSpecialization] = useState("");
+  const [experience, setExperience] = useState("");
+  const [anon, setAnon] = useState(false);
 
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
 
+  // Sync states when `me` loads
   useEffect(() => {
     if (me) {
       setName(me.name ?? "");
@@ -88,16 +91,41 @@ export default function ProfilePage() {
     }
   }, [me]);
 
+  // Derived values
+  const initials = useMemo(
+    () => initialsFromName(me?.name || user?.name),
+    [me?.name, user?.name]
+  );
+
+  const display = (me || user) as {
+    name?: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+    is_verified?: boolean;
+    is_anonymous?: boolean;
+  };
+
+  // ---------------- Handlers ----------------
   const onSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateProfile({ name, phone, is_anonymous: anon });
+    await updateProfile({
+      name,
+      phone,
+      is_anonymous: anon,
+    });
   };
 
   const onChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPwd.length < 8)
-      return toast.error("New password must be at least 8 characters");
-    if (newPwd !== confirmPwd) return toast.error("Passwords do not match");
+    if (newPwd.length < 8) {
+      toast.error("New password must be at least 8 characters");
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast.error("Passwords do not match");
+      return;
+    }
 
     const ok = await changePassword({
       current_password: currentPwd,
@@ -111,25 +139,27 @@ export default function ProfilePage() {
   };
 
   const onDeleteAccount = async () => {
-    if (!confirm("This action is irreversible. Delete your account?")) return;
+    if (!confirm("⚠️ This action is irreversible. Delete your account?"))
+      return;
     const ok = await deleteAccount();
     if (ok) router.replace("/auth/register");
   };
 
-  if (authLoading || !user) {
+  // ---------------- Loading State ----------------
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="w-10 h-10 rounded-full border-4 border-gray-300 border-t-[#131b62] animate-spin" />
       </div>
     );
   }
+  if (!user) return null;
 
-  const display = me ?? user;
-
+  // ---------------- Render ----------------
   return (
-    <DashboardLayout title="Student Dashboard" sidebar={<StudentSidebar />}>
+    <DashboardLayout title="Counselor Dashboard" sidebar={<CounselorSidebar />}>
       <div className="space-y-6">
-        {/* Header / Hero */}
+        {/* Header */}
         <section className="rounded-xl border bg-white">
           <div className="bg-gradient-to-r from-[#080e29] to-[#131b62] px-6 py-10 rounded-t-xl text-white">
             <div className="flex items-center gap-4">
@@ -149,13 +179,13 @@ export default function ProfilePage() {
                   </Badge>
                   {display.is_verified ? (
                     <span className="inline-flex items-center gap-1">
-                      <CheckCircle2 size={16} className="text-emerald-300" />{" "}
+                      <CheckCircle2 size={16} className="text-emerald-300" />
                       Verified
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1">
-                      <ShieldAlert size={16} className="text-yellow-300" /> Not
-                      verified
+                      <ShieldAlert size={16} className="text-yellow-300" />
+                      Not verified
                     </span>
                   )}
                 </div>
@@ -193,7 +223,7 @@ export default function ProfilePage() {
               <CardHeader>
                 <CardTitle>Personal Information</CardTitle>
                 <CardDescription>
-                  Update your basic account details.
+                  Update your counselor account details.
                 </CardDescription>
               </CardHeader>
               <Separator />
@@ -218,11 +248,22 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Email</Label>
-                    <Input value={display.email} disabled />
-                    <p className="text-xs text-muted-foreground">
-                      Email changes are not supported here.
-                    </p>
+                    <Label htmlFor="specialization">Specialization</Label>
+                    <Input
+                      id="specialization"
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      placeholder="e.g., Marriage Counseling"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="experience">Years of Experience</Label>
+                    <Input
+                      id="experience"
+                      type="number"
+                      value={experience}
+                      onChange={(e) => setExperience(e.target.value)}
+                    />
                   </div>
                   <div className="flex items-center justify-between rounded-md border p-3">
                     <div className="space-y-0.5">
@@ -231,7 +272,10 @@ export default function ProfilePage() {
                         Hide your name in certain counseling interactions.
                       </p>
                     </div>
-                    <Switch checked={anon} onCheckedChange={setAnon} />
+                    <Switch
+                      checked={anon}
+                      onCheckedChange={(val: boolean) => setAnon(val)}
+                    />
                   </div>
                   <div className="flex gap-3">
                     <Button type="submit" disabled={updating}>
@@ -261,6 +305,7 @@ export default function ProfilePage() {
                     <Input
                       id="current-password"
                       type="password"
+                      required
                       value={currentPwd}
                       onChange={(e) => setCurrentPwd(e.target.value)}
                       autoComplete="current-password"
@@ -271,6 +316,7 @@ export default function ProfilePage() {
                     <Input
                       id="new-password"
                       type="password"
+                      required
                       minLength={8}
                       value={newPwd}
                       onChange={(e) => setNewPwd(e.target.value)}
@@ -284,6 +330,7 @@ export default function ProfilePage() {
                     <Input
                       id="confirm-password"
                       type="password"
+                      required
                       minLength={8}
                       value={confirmPwd}
                       onChange={(e) => setConfirmPwd(e.target.value)}
@@ -306,7 +353,7 @@ export default function ProfilePage() {
               <CardHeader>
                 <CardTitle>Account Preferences</CardTitle>
                 <CardDescription>
-                  Control how your account is presented.
+                  Control how your counselor account is presented.
                 </CardDescription>
               </CardHeader>
               <Separator />
@@ -349,7 +396,14 @@ export default function ProfilePage() {
                   onClick={onDeleteAccount}
                   disabled={deleting}
                 >
-                  {deleting ? "Deleting..." : "Delete account"}
+                  {deleting ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                      Deleting...
+                    </div>
+                  ) : (
+                    "Delete account"
+                  )}
                 </Button>
               </CardFooter>
             </Card>

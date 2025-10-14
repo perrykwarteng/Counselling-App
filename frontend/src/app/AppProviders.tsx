@@ -6,19 +6,28 @@ import { AdminReferralProvider } from "@/Context/AdminReferralsProvider";
 import { AdminStudentsProvider } from "@/Context/AdminStudentrProvider";
 import { AdminLogsProvider } from "@/Context/AdminLogsProvider";
 import { AuthProvider } from "@/Context/AuthProvider";
+import { AppointmentProvider } from "@/Context/AppointmentProviders";
+import { VideoSessionProvider } from "@/Context/VideoSessionProvider";
+import { ProfileProvider } from "@/Context/ProfileProvider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <AdminLogsProvider>
-        <AdminReferralProvider>
-          <AdminResourcesProvider>
-            <AdminStudentsProvider>
-              <AdminProvider>{children}</AdminProvider>
-            </AdminStudentsProvider>
-          </AdminResourcesProvider>
-        </AdminReferralProvider>
-      </AdminLogsProvider>
+      <ProfileProvider>
+        <VideoSessionProvider>
+          <AdminLogsProvider>
+            <AdminReferralProvider>
+              <AdminResourcesProvider>
+                <AdminStudentsProvider>
+                  <AdminProvider>
+                    <AppointmentProvider>{children}</AppointmentProvider>
+                  </AdminProvider>
+                </AdminStudentsProvider>
+              </AdminResourcesProvider>
+            </AdminReferralProvider>
+          </AdminLogsProvider>
+        </VideoSessionProvider>
+      </ProfileProvider>
     </AuthProvider>
   );
 }

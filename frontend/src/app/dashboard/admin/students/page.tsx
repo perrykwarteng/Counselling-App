@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { AdminSidebar } from "@/components/adminSidebar/AdminSidebar";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Modal } from "@/components/Modal/modal";
@@ -149,7 +149,7 @@ function StudentForm({
               Email/identity verified
             </p>
           </div>
-          <Switch checked={verified} onCheckedChange={(v) => setVerified(v)} />
+          <Switch checked={verified} onCheckedChange={setVerified} />
         </div>
 
         <div className="flex items-center justify-between rounded-lg border p-3">
@@ -159,10 +159,7 @@ function StudentForm({
               Hide identity from counselors
             </p>
           </div>
-          <Switch
-            checked={anonymous}
-            onCheckedChange={(v) => setAnonymous(v)}
-          />
+          <Switch checked={anonymous} onCheckedChange={setAnonymous} />
         </div>
 
         <div className="flex items-center justify-between rounded-lg border p-3">
@@ -172,7 +169,7 @@ function StudentForm({
               Can log in and book sessions
             </p>
           </div>
-          <Switch checked={active} onCheckedChange={(v) => setActive(v)} />
+          <Switch checked={active} onCheckedChange={setActive} />
         </div>
       </div>
 
@@ -213,12 +210,18 @@ function StudentsInner() {
     toggleActive,
     remove,
     create,
+    ensureLoaded,
   } = useAdminStudents();
 
   const [openView, setOpenView] = useState<null | Student>(null);
   const [openEdit, setOpenEdit] = useState<null | Student>(null);
   const [openDelete, setOpenDelete] = useState<null | Student>(null);
   const [openCreate, setOpenCreate] = useState<boolean>(false);
+
+  // ✅ Auto-load once when this page mounts
+  useEffect(() => {
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
   // Filters
   const [deptFilter, setDeptFilter] = useState<"all" | string>("all");
@@ -371,6 +374,7 @@ function StudentsInner() {
             <p className="text-sm text-muted-foreground">
               Browse and manage student accounts
             </p>
+            {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
           </div>
 
           <div className="flex items-center gap-2">
@@ -384,6 +388,9 @@ function StudentsInner() {
                 className={cn("h-4 w-4 mr-1", loading && "animate-spin")}
               />
               Refresh
+            </Button>
+            <Button className="rounded-xl" onClick={() => setOpenCreate(true)}>
+              New Student
             </Button>
           </div>
         </div>
@@ -405,6 +412,7 @@ function StudentsInner() {
                   setQuery(e.target.value);
                   setPage(1);
                 }}
+                disabled={loading}
               />
             </div>
 
@@ -414,6 +422,7 @@ function StudentsInner() {
                 setDeptFilter(v);
                 setPage(1);
               }}
+              disabled={loading}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Department" />
@@ -434,6 +443,7 @@ function StudentsInner() {
                 setLevelFilter(v);
                 setPage(1);
               }}
+              disabled={loading}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Level" />
@@ -455,6 +465,7 @@ function StudentsInner() {
                   setVerifyFilter(v);
                   setPage(1);
                 }}
+                disabled={loading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Verification" />
@@ -472,6 +483,7 @@ function StudentsInner() {
                   setActiveFilter(v);
                   setPage(1);
                 }}
+                disabled={loading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Active status" />
@@ -651,6 +663,7 @@ function StudentsInner() {
                       setPageSize(size);
                       setPage(1);
                     }}
+                    disabled={loading}
                   >
                     <SelectTrigger className="h-8 w-[72px]">
                       <SelectValue placeholder={pageSize} />
@@ -670,6 +683,7 @@ function StudentsInner() {
                     variant="outline"
                     className="h-8 w-8 p-0"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1 || loading}
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
@@ -682,7 +696,7 @@ function StudentsInner() {
                     variant="outline"
                     className="h-8 w-8 p-0"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
+                    disabled={page === totalPages || loading}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>

@@ -26,11 +26,11 @@ const navigation = [
     href: "/dashboard/student/appointments",
     icon: Calendar,
   },
-  {
-    name: "Messages",
-    href: "/dashboard/student/messages",
-    icon: MessageCircle,
-  },
+  // {
+  //   name: "Messages",
+  //   href: "/dashboard/student/messages",
+  //   icon: MessageCircle,
+  // },
   { name: "Resources", href: "/dashboard/student/resources", icon: BookOpen },
   { name: "Profile", href: "/dashboard/student/profile", icon: User },
 ];

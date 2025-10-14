@@ -2,7 +2,9 @@
 export type UserRole = "admin" | "student" | "counselor";
 
 export interface User {
-  id?: string;           
+  experience: string[];
+  specialization: string[];
+  id?: string;
   _id?: string;
   name: string;
   email: string;

@@ -4,9 +4,9 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
+  useRef,
   PropsWithChildren,
 } from "react";
 import type { AxiosInstance } from "axios";
@@ -81,7 +81,11 @@ type StudentsContextValue = {
   query: string;
   setQuery: (q: string) => void;
 
+  /** Manual (re)fetch */
   refetch: () => Promise<void>;
+  /** Lazy one-time loader; no-op if already loaded */
+  ensureLoaded: () => Promise<void>;
+
   getById: (id: string) => Promise<Student | null>;
   create: (payload: CreateStudentInput) => Promise<Student | null>;
   update: (id: string, payload: UpdateStudentInput) => Promise<Student | null>;
@@ -213,16 +217,6 @@ function useAdminApi(): {
   return { api, base, root };
 }
 
-/* ========= Provider ========= */
-/**
- * Endpoints:
- * GET    /admin-student/students
- * GET    /admin-student/students/:id
- * POST   /admin-student/students                 (expects { ..., profile: { ... } })
- * PATCH  /admin-student/students/:id             (allows partial; include profile if changing)
- * PATCH  /admin-student/students/:id/active      ({ is_active })
- * DELETE /admin-student/students/:id
- */
 type ProviderProps = PropsWithChildren<{}>;
 
 export function AdminStudentsProvider({ children }: ProviderProps) {
@@ -233,12 +227,16 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
 
+  // lazy-load control
+  const initializedRef = useRef(false);
+  const inflightRef = useRef<Promise<void> | null>(null);
+
   const refetch = useCallback(async () => {
     try {
       setLoading(true);
       setError(undefined);
 
-      const { data } = await api.get<ListEnvelope>("/admin-student/students");
+      const { data } = await api.get<ListEnvelope>("/admin/student/students");
       const list = Array.isArray(data) ? data : data?.items ?? [];
       setItems(mapList(list));
     } catch (e) {
@@ -248,8 +246,20 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
     }
   }, [api]);
 
-  useEffect(() => {
-    refetch();
+  const ensureLoaded = useCallback(async () => {
+    if (initializedRef.current) return;
+    if (inflightRef.current) return inflightRef.current;
+
+    inflightRef.current = (async () => {
+      try {
+        await refetch();
+      } finally {
+        initializedRef.current = true;
+        inflightRef.current = null;
+      }
+    })();
+
+    return inflightRef.current;
   }, [refetch]);
 
   const getById = useCallback(
@@ -257,7 +267,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
       try {
         setError(undefined);
         const { data } = await api.get<{ student: ListItem } | ListItem>(
-          `/admin-student/students/${id}`
+          `/admin/student/students/${id}`
         );
         const raw = (data as any).student ?? data;
         if (!raw) return null;
@@ -277,7 +287,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.post<{ student: ListItem } | ListItem>(
-          "/admin-student/students",
+          "/admin/student/students",
           payload
         );
 
@@ -302,7 +312,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
         setError(undefined);
 
         const { data } = await api.patch<{ student: ListItem } | ListItem>(
-          `/admin-student/students/${id}`,
+          `/admin/student/students/${id}`,
           payload
         );
         const raw = (data as any).student ?? data;
@@ -327,7 +337,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
       );
       try {
         setError(undefined);
-        await api.patch(`/admin-student/students/${id}/active`, { is_active });
+        await api.patch(`/admin/student/students/${id}/active`, { is_active });
         return true;
       } catch (e) {
         // rollback
@@ -345,7 +355,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
     async (id: string) => {
       try {
         setError(undefined);
-        await api.delete(`/admin-student/students/${id}`);
+        await api.delete(`/admin/student/students/${id}`);
         setItems((prev) => prev.filter((r) => r.id !== id));
         return true;
       } catch (e) {
@@ -365,6 +375,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
       query,
       setQuery,
       refetch,
+      ensureLoaded,
       getById,
       create,
       update,
@@ -379,6 +390,7 @@ export function AdminStudentsProvider({ children }: ProviderProps) {
       query,
       setQuery,
       refetch,
+      ensureLoaded,
       getById,
       create,
       update,

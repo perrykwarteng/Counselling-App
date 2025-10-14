@@ -119,12 +119,12 @@ function toCSV(rows: LogRow[]) {
 
 /* ------------------ PAGE ------------------ */
 export default function AdminSystemLogsPage() {
-  const { loading, items, refetch } = useAdminLogs();
+  const { loading, items, refetch, ensureLoaded } = useAdminLogs();
 
-  // Fetch on mount
+  // ✅ Auto-load when page mounts (one-time guarded in provider)
   useEffect(() => {
-    refetch();
-  }, [refetch]);
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
   // Filters
   const [query, setQuery] = useState("");
@@ -273,6 +273,7 @@ export default function AdminSystemLogsPage() {
                   setQuery(e.target.value);
                   setPage(1);
                 }}
+                disabled={loading}
               />
             </div>
 
@@ -283,6 +284,7 @@ export default function AdminSystemLogsPage() {
                 setLevelFilter(v as any);
                 setPage(1);
               }}
+              disabled={loading}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Level" />
@@ -303,6 +305,7 @@ export default function AdminSystemLogsPage() {
                 setModuleFilter(v as any);
                 setPage(1);
               }}
+              disabled={loading}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Module" />
@@ -329,6 +332,7 @@ export default function AdminSystemLogsPage() {
                     setFrom(e.target.value);
                     setPage(1);
                   }}
+                  disabled={loading}
                 />
               </div>
               <div className="grid gap-1">
@@ -341,6 +345,7 @@ export default function AdminSystemLogsPage() {
                     setTo(e.target.value);
                     setPage(1);
                   }}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -369,7 +374,13 @@ export default function AdminSystemLogsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pageRows.length === 0 ? (
+                  {loading && items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-24 text-center">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : pageRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="h-24 text-center">
                         No logs match your filters.
@@ -416,6 +427,7 @@ export default function AdminSystemLogsPage() {
                               variant="outline"
                               className="rounded-xl"
                               onClick={() => setOpenView(r)}
+                              disabled={loading}
                             >
                               <Eye className="h-4 w-4 mr-1" />
                               View
@@ -425,6 +437,7 @@ export default function AdminSystemLogsPage() {
                               variant="outline"
                               className="rounded-xl"
                               onClick={() => handleCopyJSON(r)}
+                              disabled={loading}
                             >
                               <Copy className="h-4 w-4 mr-1" />
                               Copy JSON
@@ -462,6 +475,7 @@ export default function AdminSystemLogsPage() {
                       setPageSize(size);
                       setPage(1);
                     }}
+                    disabled={loading}
                   >
                     <SelectTrigger className="h-8 w-[72px]">
                       <SelectValue placeholder={pageSize} />
@@ -481,7 +495,7 @@ export default function AdminSystemLogsPage() {
                     variant="outline"
                     className="h-8 w-8 p-0"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
+                    disabled={loading || page === 1}
                     aria-label="Previous page"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -495,7 +509,7 @@ export default function AdminSystemLogsPage() {
                     variant="outline"
                     className="h-8 w-8 p-0"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
+                    disabled={loading || page === totalPages}
                     aria-label="Next page"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -522,6 +536,7 @@ export default function AdminSystemLogsPage() {
                 openView &&
                 navigator.clipboard.writeText(JSON.stringify(openView, null, 2))
               }
+              disabled={loading}
             >
               <Copy className="h-4 w-4 mr-1" /> Copy JSON
             </Button>
@@ -536,6 +551,7 @@ export default function AdminSystemLogsPage() {
                   );
                 }
               }}
+              disabled={loading}
             >
               <FileDown className="h-4 w-4 mr-1" /> Download
             </Button>
