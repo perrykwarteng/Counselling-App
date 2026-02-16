@@ -19,7 +19,7 @@ import {
   requireFields,
 } from "../utils/validate";
 import { sendOTP, sendPasswordReset, sendWelcomeEmail } from "../lib/emails";
-import { writeAdminLog } from "./adminLogs.controller"; // ✅ add logs
+import { writeAdminLog } from "./adminLogs.controller";
 
 function reqId(req: Request) {
   return (

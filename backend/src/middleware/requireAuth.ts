@@ -19,7 +19,7 @@ export type AuthedUser = {
 };
 
 export interface AuthedRequest extends Request {
-  user: AuthedUser;
+  user?: AuthedUser;
 }
 
 function getBearerToken(req: Request): string | undefined {
