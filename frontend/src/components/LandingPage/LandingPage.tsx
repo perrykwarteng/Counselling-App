@@ -46,21 +46,6 @@ export default function LandingPage() {
             <Image className="w-full" src={Logo} alt="Logo" />
           </div>
 
-          {/* <nav className="hidden items-center gap-8 md:flex">
-            <Link href="#" className="hover:text-white/90">
-              Home
-            </Link>
-            <Link href="#" className="hover:text-white/90">
-              Marketplace
-            </Link>
-            <Link href="#" className="hover:text-white/90">
-              Blog
-            </Link>
-            <Link href="#" className="hover:text-white/90">
-              Community
-            </Link>
-          </nav> */}
-
           <div className="hidden items-center gap-5 md:flex">
             <Link
               href="/auth/register"
@@ -97,23 +82,22 @@ export default function LandingPage() {
       </header>
 
       <section className="relative z-10">
-        <div className="mx-auto grid max-w-7xl gap-8 px-6 pb-20 pt-24 md:grid-cols-12 md:pb-28 md:pt-28">
+        <div className="mx-auto grid max-w-7xl gap-8 px-6 pb-20 pt-15 md:grid-cols-12 md:pb-28 md:pt-18">
           {/* Left */}
           <div className="md:col-span-7 lg:col-span-6">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-gradient-to-r from-[#080e29] to-[#131b62]" />
-              Sustainable Farming Tech
+              Student Mental Health Support
             </div>
 
             <h1 className="max-w-xl text-4xl font-semibold leading-tight md:text-5xl">
-              Bringing Innovation to
-              <br className="hidden md:block" /> Your Farming Journey.
+              Empowering Students Through Guidance and Emotional Support.
             </h1>
 
             <p className="mt-5 max-w-xl text-base text-white/85 md:text-lg">
-              From precision agriculture to sustainable practices, we help you
-              grow more efficiently and profitably. Join us in transforming the
-              way you farm.
+              Our ounselling platform connects students with professional
+              guidance, emotional support, and personalized wellness
+              resources—anytime, anywhere. Your mental well-being matters.
             </p>
 
             <div className="mt-8 flex items-center gap-4">
