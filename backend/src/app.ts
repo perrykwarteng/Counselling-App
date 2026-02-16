@@ -11,9 +11,13 @@ export function createApp() {
   app.set("trust proxy", 1);
   app.use(
     cors({
-      origin: ["http://localhost:3000", "https://your-frontend.com"],
+      origin: [
+        "http://localhost:3000",
+        "https://your-frontend.com",
+        "https://counselling-app.vercel.app/",
+      ],
       credentials: true,
-    })
+    }),
   );
   app.use(express.json());
   app.use(cookieParser());
